@@ -28,13 +28,19 @@ INPUT_THRESHOLD = float(os.environ.get("FIREWALL_INPUT_THRESHOLD", "0.85"))
 TOXICITY_INPUT = os.environ.get("FIREWALL_TOXICITY_INPUT", "0") not in {"0", "false", "False", ""}
 PII_OUTPUT = os.environ.get("FIREWALL_PII_OUTPUT", "1") not in {"0", "false", "False", ""}
 
-# Curated high-confidence PII entities for output redaction. PERSON/LOCATION/DATE
-# are deliberately EXCLUDED — redacting every name in a normal answer ("tell me
-# about Einstein") would wreck the assistant. These are the categories where a hit
-# is almost always genuinely sensitive.
+# Curated high-confidence PII entities for output redaction. Two exclusions, both
+# to stop the scanner shredding normal answers:
+#   - PERSON / LOCATION / DATE — redacting every name ("tell me about Einstein")
+#     would wreck the assistant.
+#   - IP_ADDRESS / IBAN_CODE / CRYPTO — Presidio's recognizers for these greedily
+#     match runs of digits/alphanumerics in TECHNICAL text (GPIO pin lists, HTML,
+#     hex, ports) and redact huge spans. Verified 2026-06-18: a GPIO/HTML relay
+#     list got the whole `<ul>…</ul>` collapsed to `<IP_ADDRESS>` (score 0.84). This
+#     assistant emits technical content constantly, so the false-positive cost far
+#     outweighs the benefit (and redacting every 192.168.x.x in a homelab answer is
+#     actively unhelpful). Kept set is regex-backed and bounded:
 _PII_ENTITIES = [
     "EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD", "US_SSN",
-    "IBAN_CODE", "CRYPTO", "IP_ADDRESS",
 ]
 
 # Credential/secret shapes to scrub from model output (most-specific first).
