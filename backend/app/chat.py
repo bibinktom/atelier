@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import AsyncIterator
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from . import config, crypto, db, firewall, memory, nim, preview, telemetry, tools_client
@@ -1294,22 +1294,16 @@ async def download_file(file_id: str, _: Request,
         # Office formats: convert to PDF on demand for in-browser preview.
         if src_mime in preview.PREVIEW_FORMATS:
             pdf_path = await preview.convert_to_pdf(src_path)
-            if pdf_path:
-                return FileResponse(
-                    pdf_path, media_type="application/pdf",
-                    filename=f"{src_filename}.pdf", content_disposition_type="inline",
-                )
-            raise HTTPException(500, "preview conversion failed")
-        # Natively previewable: serve inline so the browser renders rather than downloads.
-        if (src_mime in preview.INLINE_NATIVE
-                or src_mime.startswith("image/")
-                or preview.is_text_like(src_mime, src_filename)):
-            return FileResponse(
-                src_path, media_type=src_mime,
-                filename=src_filename, content_disposition_type="inline",
-            )
-        # Unknown format — fall through to attachment download.
-    return FileResponse(src_path, media_type=src_mime, filename=src_filename)
+            if not pdf_path:
+                raise HTTPException(500, "preview conversion failed")
+            return preview.file_response(pdf_path, mime="application/pdf",
+                                         filename=f"{src_filename}.pdf", inline=True)
+        # preview.file_response applies the inline/attachment XSS policy (html/svg
+        # never rendered as live markup) + nosniff/CSP headers.
+        return preview.file_response(src_path, mime=src_mime,
+                                     filename=src_filename, inline=True)
+    return preview.file_response(src_path, mime=src_mime,
+                                 filename=src_filename, inline=False)
 
 
 # ---------- streaming chat ----------

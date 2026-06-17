@@ -24,6 +24,7 @@ import os
 from pathlib import Path
 
 import httpx
+from fastapi.responses import FileResponse
 
 PREVIEW_URL = os.environ.get("PREVIEW_URL", "http://preview:8002")
 
@@ -138,3 +139,59 @@ def is_text_like(mime: str | None, filename: str | None) -> bool:
                    "toml", "ini", "cfg", "csv", "tsv", "xml", "rst"}:
             return True
     return False
+
+
+# ---- hardened file serving (stored-XSS guard) --------------------------------
+#
+# Files served from our own origin can be LLM-generated or user-uploaded, so a
+# `.html` / `.svg` / `.xhtml` served inline with its native content-type would run
+# attacker-controlled script in our origin (session-riding stored XSS). Policy:
+#   - inline only a hard MIME allowlist that cannot execute script;
+#   - other text/code is coerced to text/plain so it renders as SOURCE, never as a
+#     live document (this neutralises html/svg/xml while keeping code preview);
+#   - everything else is forced to download.
+# Plus nosniff (so the browser can't re-sniff our text/plain back into HTML) and a
+# script-free CSP as defence-in-depth. No `sandbox` directive — that can break the
+# native PDF/image viewers — but `default-src 'none'` already blocks all scripting.
+_FILE_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+}
+
+# Content types safe to serve inline as-is — none execute script in our origin.
+_INLINE_SAFE_MIME = {
+    "application/pdf", "application/json",
+    "image/png", "image/jpeg", "image/gif", "image/webp",
+    "text/plain", "text/markdown", "text/csv",
+}
+
+# Extensions we preview inline as PLAIN TEXT source. Markup the browser would
+# otherwise execute (html/svg/xml/xhtml) is deliberately included here so it shows
+# as source rather than running — the core of the stored-XSS fix.
+_TEXT_SOURCE_EXT = {
+    "md", "markdown", "txt", "log", "json", "yaml", "yml", "py", "js", "ts", "tsx",
+    "jsx", "html", "htm", "xhtml", "svg", "css", "sh", "bash", "toml", "ini", "cfg",
+    "conf", "csv", "tsv", "xml", "rst", "sql", "go", "rs", "java", "c", "h", "cpp", "rb",
+}
+
+
+def file_response(path: str, *, mime: str | None, filename: str | None,
+                  inline: bool) -> FileResponse:
+    """Build a FileResponse with the inline/attachment XSS policy above applied."""
+    mime = mime or "application/octet-stream"
+    headers = dict(_FILE_SECURITY_HEADERS)
+    if not inline:
+        return FileResponse(path, media_type=mime, filename=filename,
+                            content_disposition_type="attachment", headers=headers)
+    if mime in _INLINE_SAFE_MIME:
+        return FileResponse(path, media_type=mime, filename=filename,
+                            content_disposition_type="inline", headers=headers)
+    ext = filename.rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
+    if mime.startswith("text/") or ext in _TEXT_SOURCE_EXT:
+        # Coerce to plain text: markup is shown as source, never parsed/executed.
+        return FileResponse(path, media_type="text/plain; charset=utf-8",
+                            filename=filename, content_disposition_type="inline",
+                            headers=headers)
+    # Unknown / binary → download.
+    return FileResponse(path, media_type=mime, filename=filename,
+                        content_disposition_type="attachment", headers=headers)

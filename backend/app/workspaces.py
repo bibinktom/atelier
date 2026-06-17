@@ -11,7 +11,6 @@ import re
 import shutil
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import config, db, preview
@@ -270,20 +269,14 @@ async def download_from_workspace(wid: str, _: Request,
     if inline:
         if mime in preview.PREVIEW_FORMATS:
             pdf_path = await preview.convert_to_pdf(target)
-            if pdf_path:
-                return FileResponse(
-                    pdf_path, media_type="application/pdf",
-                    filename=f"{fname}.pdf", content_disposition_type="inline",
-                )
-            raise HTTPException(500, "preview conversion failed")
-        if (mime in preview.INLINE_NATIVE
-                or mime.startswith("image/")
-                or preview.is_text_like(mime, fname)):
-            return FileResponse(
-                target, media_type=mime,
-                filename=fname, content_disposition_type="inline",
-            )
-    return FileResponse(target, media_type=mime, filename=fname)
+            if not pdf_path:
+                raise HTTPException(500, "preview conversion failed")
+            return preview.file_response(pdf_path, mime="application/pdf",
+                                         filename=f"{fname}.pdf", inline=True)
+        # preview.file_response applies the inline/attachment XSS policy (html/svg
+        # never rendered as live markup) + nosniff/CSP headers.
+        return preview.file_response(target, mime=mime, filename=fname, inline=True)
+    return preview.file_response(target, mime=mime, filename=fname, inline=False)
 
 
 @router.delete("/workspaces/{wid}/files")
