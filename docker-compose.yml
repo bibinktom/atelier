@@ -1,0 +1,135 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/app.db
+      FILES_DIR: /files
+      WORKSPACES_DIR: /workspaces
+      PREVIEW_URL: http://preview:8002
+      GUARD_URL: http://guard:8003
+    volumes:
+      - app-data:/data
+      - generated-files:/files
+      # Backend creates per-user/per-workspace subdirs; tools container reads/writes them.
+      - ${WORKSPACES_HOST_DIR:-/media/bibintom/4tb/familyai-workspaces}:/workspaces:rw
+    networks:
+      - public
+      - internal
+    # Lets the backend reach a local Ollama on the host at host.docker.internal:11434.
+    # No-op if Ollama isn't installed; the discovery call short-circuits cleanly.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # No host port — Cloudflare tunnel reaches `backend:8000` via the family-ai-public network.
+    expose:
+      - "8000"
+    depends_on:
+      - tools
+      - preview
+      - guard
+    restart: unless-stopped
+
+  tools:
+    build: ./tools
+    env_file: .env
+    environment:
+      FILES_DIR: /files
+    volumes:
+      - generated-files:/files
+      # Same bind mount as backend so files written by tools are user-visible on host.
+      - ${WORKSPACES_HOST_DIR:-/media/bibintom/4tb/familyai-workspaces}:/workspaces:rw
+    # Run as host uid/gid so files in /workspaces are owned by the host user (uid 1000),
+    # making them editable from the user's normal file manager.
+    user: "1000:1000"
+    # Only the backend can reach the tools service. No host port exposed.
+    networks:
+      - internal
+    # Sandbox limits — code runs here, not in backend. mem/cpu/pids caps keep one
+    # user's build/test from starving the shared container; per-exec rlimits in
+    # workspace.py add a second layer. (True per-user containers are a later step.)
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 512
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: false   # python-pptx etc. need /tmp writable
+    tmpfs:
+      - /tmp:size=256m
+    restart: unless-stopped
+
+  preview:
+    build: ./preview
+    # Read-only mounts: even if a LibreOffice parser CVE leads to RCE in this
+    # container, the attacker cannot tamper with /files or /workspaces. The
+    # converted PDF is returned in the HTTP response body, so no shared write
+    # path is needed at all.
+    volumes:
+      - generated-files:/files:ro
+      - ${WORKSPACES_HOST_DIR:-/media/bibintom/4tb/familyai-workspaces}:/workspaces:ro
+    user: "10002:10002"
+    networks:
+      - internal
+    expose:
+      - "8002"
+    # Sandbox: matches the `tools` profile.
+    mem_limit: 1g
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true     # rootfs read-only; LibreOffice writes only to /tmp
+    tmpfs:
+      - /tmp:size=512m
+    restart: unless-stopped
+
+  guard:
+    # AI firewall: LLM Guard scanners (prompt-injection in, secret-redaction +
+    # toxicity out). Lowest-privilege service in the stack — no secrets, NO volume
+    # mounts: it only ever sees plain text over HTTP. Model weights are baked into
+    # the image at build time, so it needs no egress and runs read-only.
+    build: ./guard
+    env_file: .env
+    networks:
+      - internal
+    expose:
+      - "8003"
+    mem_limit: 2g
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true     # rootfs read-only; HF cache is baked at /opt/hf
+    tmpfs:
+      - /tmp:size=256m
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL}
+    env_file: .env
+    networks:
+      - public
+    # No host port — Cloudflare tunnel reaches `frontend:3000` via the family-ai-public network.
+    expose:
+      - "3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  public:
+    name: family-ai-public   # cloudflared attaches here to reach frontend/backend by service name
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: false   # tools container needs egress for Tavily + downloads. Inbound is gated by network membership.
+
+volumes:
+  app-data:
+  generated-files:

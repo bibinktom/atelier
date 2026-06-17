@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <rect width="180" height="180" rx="32" fill="#0a0a0a"/>
+  <text x="90" y="132"
+        text-anchor="middle"
+        font-family="ui-serif, 'Fraunces', Georgia, 'Times New Roman', serif"
+        font-size="128"
+        font-weight="500"
+        fill="#fafafa">A</text>
+  <line x1="42" y1="156" x2="138" y2="156" stroke="#fafafa" stroke-width="3" opacity="0.55"/>
+</svg>

@@ -1,0 +1,244 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github.css";
+
+@theme {
+  /* Paper-and-ink neutral ramp. Warm-white paper, near-black ink. */
+  --color-paper:        #ffffff;
+  --color-paper-2:      #fafafa;
+  --color-paper-3:      #f4f4f5;
+  --color-rule:         #e5e7eb;
+  --color-rule-soft:    #f1f1f1;
+  --color-ink:          #0a0a0a;
+  --color-ink-2:        #27272a;
+  --color-muted:        #71717a;
+  --color-muted-2:      #a1a1aa;
+
+  /* Accents. brick is the SINGLE primary accent; moss + cobalt are reserved
+     for file and web semantics respectively (see CLAUDE.md design constraints).
+     Don't introduce a fourth accent without good reason. */
+  --color-brick:        #a8432e;   /* terracotta brick-red — primary accent */
+  --color-brick-deep:   #8a3526;   /* darker brick for hover/active */
+  --color-brick-soft:   #f7ebe7;   /* light brick wash for chip backgrounds */
+  --color-moss:         #5c6b3c;   /* muted moss green — file semantics */
+  --color-moss-soft:    #eef0e6;
+  --color-cobalt:       #2f4d80;   /* cobalt blue — web semantics */
+  --color-cobalt-soft:  #e8edf5;
+
+  --font-sans:    var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono:    var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Pulse-shadow used by chip-breathe — flips in .dark so the breathing
+     ring is actually visible on a dark background. */
+  --chip-breathe-shadow: 0 0 0 4px rgba(0,0,0,0.04);
+}
+
+/* --------- DARK MODE ---------
+   "scriptorium at night": warm dark charcoal paper, cream/parchment ink.
+   Variable names are identical to light mode so every existing rule that
+   says `var(--color-paper)` flips automatically — no per-component edits.
+   Pure black + pure white was deliberately avoided to keep the paper-and-ink
+   atelier identity rather than collapsing into a generic dark-AI-chat look. */
+.dark {
+  --color-paper:        #15120e;
+  --color-paper-2:      #1c1814;
+  --color-paper-3:      #25201a;
+  --color-rule:         #3a342b;
+  --color-rule-soft:    #2a251f;
+  --color-ink:          #f3ede1;
+  --color-ink-2:        #c8bfae;
+  --color-muted:        #8c8270;
+  --color-muted-2:      #5e5645;
+
+  /* Accents lifted/warmed so they glow against the charcoal paper rather than
+     collapsing into the parchment ink. Same semantic roles as light mode. */
+  --color-brick:        #d4805f;   /* warm clay brick — primary accent */
+  --color-brick-deep:   #e29a7d;   /* lighter brick for hover/active on dark */
+  --color-brick-soft:   #2e211b;   /* dark warm wash for chip backgrounds */
+  --color-moss:         #a3b07a;   /* lifted sage — file semantics */
+  --color-moss-soft:    #23271c;
+  --color-cobalt:       #8fa9cf;   /* lifted slate-blue — web semantics */
+  --color-cobalt-soft:  #1d2530;
+
+  --chip-breathe-shadow: 0 0 0 4px rgba(255,255,255,0.06);
+}
+
+@layer base {
+  html, body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  * { border-color: var(--color-rule); }
+  ::selection { background: var(--color-ink); color: var(--color-paper); }
+
+  /* Form fields default to inherited text color so they pick up the theme.
+     Without this, Safari and some Chromium variants reset to system grey
+     and inputs go invisible in dark mode against a dark paper background. */
+  input, textarea, select { color: inherit; }
+  input::placeholder, textarea::placeholder {
+    color: var(--color-muted);
+    opacity: 1;
+  }
+}
+
+/* Tight, sharp display headings — no opsz/SOFT axis use. */
+.h-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+/* Hairline rule with quiet caps label — used between conversation groups. */
+.rule-diamond {
+  display: flex; align-items: center; gap: 0.5rem;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.rule-diamond::before, .rule-diamond::after {
+  content: ""; flex: 1; height: 1px; background: var(--color-rule);
+}
+
+/* Tool-call chip — flat, monochrome. */
+.chip {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0.65rem 0.3rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.78rem; line-height: 1;
+  border: 1px solid;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.chip-running { animation: chip-breathe 1.6s ease-in-out infinite; }
+@keyframes chip-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50%      { box-shadow: var(--chip-breathe-shadow); }
+}
+.chip-dot {
+  width: 6px; height: 6px; border-radius: 99px; flex: none;
+}
+.chip-dot.live {
+  background: currentColor;
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1);   opacity: 1;   }
+  50%      { transform: scale(1.4); opacity: 0.4; }
+}
+
+/* Markdown content */
+.prose-paper p { margin: 0 0 0.85em; line-height: 1.65; }
+.prose-paper h1, .prose-paper h2, .prose-paper h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 1.2em 0 0.5em;
+}
+.prose-paper h1 { font-size: 1.55rem; }
+.prose-paper h2 { font-size: 1.25rem; }
+.prose-paper h3 { font-size: 1.05rem; }
+.prose-paper a { color: var(--color-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--color-rule); }
+.prose-paper a:hover { text-decoration-color: var(--color-ink); }
+.prose-paper ul, .prose-paper ol { margin: 0.4em 0 0.85em 1.2em; }
+.prose-paper li { margin: 0.2em 0; line-height: 1.55; }
+.prose-paper code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  background: var(--color-paper-3); padding: 0.08em 0.35em; border-radius: 4px;
+}
+.prose-paper pre {
+  background: var(--color-paper-3) !important;
+  border: 1px solid var(--color-rule);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  margin: 0.6em 0 1em;
+}
+.prose-paper pre code { background: transparent; padding: 0; }
+.prose-paper blockquote {
+  border-left: 2px solid var(--color-ink);
+  padding-left: 0.9rem; color: var(--color-ink-2);
+  margin: 0.6em 0;
+}
+.prose-paper table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.92em; }
+.prose-paper th, .prose-paper td {
+  border: 1px solid var(--color-rule);
+  padding: 0.4em 0.7em; text-align: left;
+}
+.prose-paper th { background: var(--color-paper-3); font-weight: 600; }
+
+/* highlight.js github.css is light-mode designed; in .dark, override the most
+   common token classes with github-dark colour values so code stays readable. */
+.dark .hljs                  { background: var(--color-paper-3); color: var(--color-ink); }
+.dark .hljs-comment,
+.dark .hljs-quote            { color: #8b949e; font-style: italic; }
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-built_in         { color: #ff7b72; }
+.dark .hljs-string,
+.dark .hljs-attr,
+.dark .hljs-meta-string      { color: #a5d6ff; }
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-symbol           { color: #79c0ff; }
+.dark .hljs-function,
+.dark .hljs-title,
+.dark .hljs-class            { color: #d2a8ff; }
+.dark .hljs-variable,
+.dark .hljs-template-variable,
+.dark .hljs-attribute,
+.dark .hljs-property         { color: #ffa657; }
+.dark .hljs-tag,
+.dark .hljs-name,
+.dark .hljs-section          { color: #7ee787; }
+.dark .hljs-regexp           { color: #a5d6ff; }
+.dark .hljs-deletion         { color: #ffa198; background: #67060c; }
+.dark .hljs-addition         { color: #aff5b4; background: #033a16; }
+
+.cursor-blink::after {
+  content: "▍";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--color-ink);
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink { to { opacity: 0; } }
+
+/* scrollbars */
+.thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: var(--color-rule); border-radius: 99px; }
+.thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Horizontally-scrollable strip used by the mobile header action row.
+   The buttons get to keep their own widths; the strip overflows-x without
+   showing a scrollbar so it reads as a clean toolbar. */
+.h-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.h-strip::-webkit-scrollbar { display: none; }
+.h-strip > * { flex: none; }
+
+/* iOS safe-area helpers. Padding takes the larger of the explicit value or
+   the device inset, so notched phones don't clip the top bar / composer. */
+.safe-pt    { padding-top:    max(env(safe-area-inset-top, 0), 0px); }
+.safe-pb    { padding-bottom: max(env(safe-area-inset-bottom, 0), 0px); }
+.safe-pl    { padding-left:   max(env(safe-area-inset-left, 0), 0px); }
+.safe-pr    { padding-right:  max(env(safe-area-inset-right, 0), 0px); }
+
+/* Touch target floor — applied to interactive controls in mobile header so
+   pickers / buttons hit Apple HIG's 44pt minimum without changing desktop. */
+@media (max-width: 767.98px) {
+  .tap-target { min-height: 40px; }
+}

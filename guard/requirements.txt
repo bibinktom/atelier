@@ -1,0 +1,10 @@
+# CPU-only torch (the +cpu local tag forces the CPU wheel from the pytorch cpu
+# index passed on the pip command line) — avoids the multi-GB CUDA build that
+# llm-guard would otherwise pull on x86_64.
+torch==2.4.1+cpu
+llm-guard==0.3.16
+fastapi
+uvicorn[standard]
+# CodeShield (Meta PurpleLlama) — insecure-code static analysis. Pulls in semgrep
+# (local rules, no network/API key needed for the bundled rulepacks).
+codeshield
