@@ -21,7 +21,10 @@ from . import workspace as ws
 
 FILES_DIR = os.environ.get("FILES_DIR", "/files")
 os.makedirs(FILES_DIR, exist_ok=True)
-os.makedirs("/workspaces", exist_ok=True)
+# The /workspaces root only exists in the shared-container build; the local desktop
+# build (ATELIER_LOCAL=1) operates on absolute host paths and never uses it.
+if not ws.LOCAL:
+    os.makedirs("/workspaces", exist_ok=True)
 
 app = FastAPI(title="Family AI Tools")
 

@@ -1,7 +1,27 @@
 import os
+import secrets
+
 import httpx
 
-NVIDIA_API_KEY = os.environ["NVIDIA_API_KEY"]
+# Local desktop build (Tauri app on the user's own machine, ATELIER_LOCAL=1):
+# single-user, OpenRouter-funded inference, no Google OAuth, tools run natively on
+# the host. The secrets that are mandatory for the shared server (NVIDIA / Google /
+# session) are optional here — see _required().
+ATELIER_LOCAL = os.environ.get("ATELIER_LOCAL", "0") not in {"0", "false", "False", ""}
+
+
+def _required(name: str, local_default: str = "") -> str:
+    """Like os.environ[name] (fail-fast) for the shared server, but in local mode
+    falls back to a default so the desktop build boots without server secrets."""
+    v = os.environ.get(name)
+    if v:
+        return v
+    if ATELIER_LOCAL:
+        return local_default
+    raise KeyError(name)
+
+
+NVIDIA_API_KEY = _required("NVIDIA_API_KEY", "local-unused")
 NVIDIA_BASE_URL = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 # ---- ollama (local) ----
@@ -45,8 +65,8 @@ SKILLS_CATALOG_MAX_FILES_PER_REPO = int(os.environ.get("SKILLS_CATALOG_MAX_FILES
 SKILLS_CATALOG_MAX_PER_REPO = int(os.environ.get("SKILLS_CATALOG_MAX_PER_REPO", "5"))
 SKILLS_CATALOG_MAX_SKILLS = int(os.environ.get("SKILLS_CATALOG_MAX_SKILLS", "400"))
 
-GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
-GOOGLE_CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
+GOOGLE_CLIENT_ID = _required("GOOGLE_CLIENT_ID", "local-unused")
+GOOGLE_CLIENT_SECRET = _required("GOOGLE_CLIENT_SECRET", "local-unused")
 
 ALLOWED_EMAILS = {
     e.strip().lower() for e in os.environ.get("ALLOWED_EMAILS", "").split(",") if e.strip()
@@ -102,13 +122,19 @@ FIREWALL_ALIGNMENT_BLOCK = os.environ.get("FIREWALL_ALIGNMENT_BLOCK", "0") not i
 # reflect-tier model by default.
 ALIGNMENT_MODEL = os.environ.get("ALIGNMENT_MODEL", "openai/gpt-oss-20b:free")
 
-SESSION_SECRET = os.environ["SESSION_SECRET"]
+SESSION_SECRET = _required("SESSION_SECRET", secrets.token_urlsafe(32))
 
 # ---- per-user provider keys (OpenRouter OAuth) ----
 # Fernet key used by crypto.py to encrypt each user's OpenRouter API key at rest.
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 # Required — losing it invalidates all stored keys (users reconnect).
-KEY_ENCRYPTION_KEY = os.environ["KEY_ENCRYPTION_KEY"]
+KEY_ENCRYPTION_KEY = _required("KEY_ENCRYPTION_KEY", "")
+if not KEY_ENCRYPTION_KEY:
+    # Local mode and no key supplied: generate an ephemeral, valid-format Fernet key
+    # (urlsafe base64, 32 bytes). The launcher normally persists a stable one; this
+    # fallback just means a stored OpenRouter key won't survive a restart (reconnect).
+    import base64
+    KEY_ENCRYPTION_KEY = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
 
 # OpenRouter OAuth (PKCE) endpoints. Users connect their own account in one click;
 # the app uses their user-scoped key so inference is user-funded.

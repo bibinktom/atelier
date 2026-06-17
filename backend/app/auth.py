@@ -117,7 +117,29 @@ async def me(request: Request):
     }
 
 
+_local_user_id: str | None = None
+
+
+def _local_user() -> dict:
+    """The single auto-logged-in user for the local desktop build. Created once
+    (admin, never pending); inference still flows through their own OpenRouter
+    connection. No Google OAuth / session cookie involved."""
+    global _local_user_id
+    if _local_user_id:
+        u = db.get_user(_local_user_id)
+        if u:
+            return u
+    import os
+    email = (os.environ.get("ATELIER_LOCAL_EMAIL") or "you@localhost").strip().lower()
+    u = db.upsert_user(email=email, name=os.environ.get("ATELIER_LOCAL_NAME") or "You",
+                       picture="", is_admin=True, is_pending=False)
+    _local_user_id = u["id"]
+    return u
+
+
 def current_user(request: Request) -> dict | None:
+    if config.ATELIER_LOCAL:
+        return _local_user()
     uid = request.session.get("user_id")
     if not uid:
         return None
