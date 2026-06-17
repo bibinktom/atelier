@@ -20,6 +20,48 @@ from .web_fetch import _host_is_blocked
 
 WS_ROOT = Path("/workspaces")
 
+# ---- local (desktop) mode ----------------------------------------------------
+# When ATELIER_LOCAL=1 the tools run NATIVELY on the user's own machine (the Tauri
+# desktop build) instead of inside the shared hardened container. In that mode:
+#   - `workspace_path` is an ABSOLUTE host directory (the active project), not the
+#     "<user_id>/<slug>" container path;
+#   - tools may reach anything under ATELIER_LOCAL_ROOT (default: the user's home
+#     dir) so "find a file on my PC" / "sort my folders" work across projects;
+#   - bash uses the real shell + real environment (native PowerShell on Windows);
+#   - the per-user disk quota, SAFE_ENV scrub, and fork/file rlimits are disabled.
+# Same trust model as Claude Code or VS Code: it's the user's own machine.
+LOCAL = os.environ.get("ATELIER_LOCAL", "0") not in {"0", "false", "False", ""}
+
+
+def _local_root() -> Path:
+    raw = os.environ.get("ATELIER_LOCAL_ROOT") or str(Path.home())
+    try:
+        return Path(raw).expanduser().resolve()
+    except OSError:
+        return Path.home().resolve()
+
+
+def _exec_env() -> dict:
+    """Env for subprocesses: the user's real environment locally, the scrubbed
+    SAFE_ENV in the shared container (where secrets must not leak)."""
+    return os.environ.copy() if LOCAL else SAFE_ENV
+
+
+def _exec_preexec():
+    """No rlimit clamp on the user's own machine; keep the fork/file guard in the
+    shared container. (Always None on Windows — preexec_fn is POSIX-only.)"""
+    if LOCAL or os.name == "nt":
+        return None
+    return _apply_exec_limits
+
+
+def _native_shell_cmd(command: str) -> list[str]:
+    """The argv to run a shell command on the host, per-OS."""
+    if os.name == "nt":
+        return ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+    shell = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
+    return [shell, "-c", command]
+
 # ---- per-user disk quota + per-exec resource isolation ----
 # The tools container is SHARED across users (isolation is per-workspace-path, not
 # per-container). These guards stop one user from (a) filling the host disk or
@@ -50,6 +92,8 @@ def _usage_bytes(workspace_path: str) -> int:
 
 def _quota_error(workspace_path: str, incoming: int = 0) -> dict | None:
     """Return an error dict if writing `incoming` more bytes would exceed quota."""
+    if LOCAL:
+        return None  # the user's own disk — no per-user quota
     used = _usage_bytes(workspace_path)
     if used + incoming > USER_QUOTA_BYTES:
         gb = USER_QUOTA_BYTES / (1024 ** 3)
@@ -93,6 +137,17 @@ _PATH_RE = re.compile(r"^[a-f0-9]{32}/[a-z0-9][a-z0-9_-]{0,62}$")
 
 
 def _validate_workspace(workspace_path: str) -> Path:
+    if LOCAL:
+        # workspace_path is an absolute host project dir; default to the local root.
+        p = Path(workspace_path).expanduser().resolve() if workspace_path else _local_root()
+        allowed = _local_root()
+        if allowed != Path("/"):
+            try:
+                p.relative_to(allowed)
+            except ValueError:
+                raise PermissionError("project dir is outside ATELIER_LOCAL_ROOT")
+        p.mkdir(parents=True, exist_ok=True)
+        return p
     if not workspace_path or not _PATH_RE.fullmatch(workspace_path):
         raise ValueError("invalid workspace path")
     p = WS_ROOT / workspace_path
@@ -100,7 +155,28 @@ def _validate_workspace(workspace_path: str) -> Path:
     return p
 
 
+def _display(p: Path, base: Path) -> str:
+    """Path to show the user/model: relative to the project when possible, else
+    absolute (local mode can legitimately touch files outside the project dir)."""
+    try:
+        return str(p.relative_to(base)) or "."
+    except ValueError:
+        return str(p)
+
+
 def _safe_path(workspace_path: str, rel: str) -> Path:
+    if LOCAL:
+        root = _validate_workspace(workspace_path)
+        rel = rel or ""
+        expanded = os.path.expanduser(rel)
+        target = (Path(expanded) if os.path.isabs(expanded) else root / rel).resolve()
+        allowed = _local_root()
+        if allowed != Path("/"):
+            try:
+                target.relative_to(allowed)
+            except ValueError:
+                raise PermissionError("path escapes ATELIER_LOCAL_ROOT")
+        return target
     root = _validate_workspace(workspace_path).resolve()
     target = (root / (rel or "")).resolve()
     try:
@@ -130,7 +206,7 @@ def list_dir(workspace_path: str, path: str = ".") -> dict:
         except OSError:
             continue
     root = _validate_workspace(workspace_path)
-    return {"path": str(p.relative_to(root)) or ".", "entries": entries}
+    return {"path": _display(p, root), "entries": entries}
 
 
 def read_file(workspace_path: str, path: str, max_chars: int = 50_000) -> dict:
@@ -162,7 +238,7 @@ def write_file(workspace_path: str, path: str, content: str) -> dict:
     p.write_text(content, encoding="utf-8")
     root = _validate_workspace(workspace_path)
     return {
-        "path": str(p.relative_to(root)),
+        "path": _display(p, root),
         "bytes": p.stat().st_size,
         "created": before == "",
         "diff": _unified_diff(before, content, path),
@@ -202,7 +278,7 @@ def grep(workspace_path: str, pattern: str, path: str = ".", max_matches: int = 
         try:
             for i, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
                 if rx.search(line):
-                    out.append({"path": str(f.relative_to(base)), "line": i, "text": line[:300]})
+                    out.append({"path": _display(f, base), "line": i, "text": line[:300]})
                     if len(out) >= max_matches:
                         return {"matches": out, "truncated": True}
         except OSError:
@@ -215,7 +291,7 @@ def glob_files(workspace_path: str, pattern: str, max_results: int = 200) -> dic
     out = []
     for f in base.rglob("*"):
         if f.is_file() and fnmatch.fnmatch(str(f.relative_to(base)), pattern):
-            out.append(str(f.relative_to(base)))
+            out.append(_display(f, base))
             if len(out) >= max_results:
                 break
     return {"matches": out}
@@ -242,13 +318,13 @@ def bash(workspace_path: str, command: str, timeout: int = BASH_TIMEOUT_DEFAULT)
     timeout = max(1, min(BASH_TIMEOUT_MAX, int(timeout or BASH_TIMEOUT_DEFAULT)))
     try:
         proc = subprocess.run(
-            ["bash", "-c", command],
+            _native_shell_cmd(command) if LOCAL else ["bash", "-c", command],
             cwd=str(cwd),
-            env=SAFE_ENV,
+            env=_exec_env(),
             capture_output=True,
             text=True,
             timeout=timeout,
-            preexec_fn=_apply_exec_limits,
+            preexec_fn=_exec_preexec(),
         )
     except subprocess.TimeoutExpired:
         return {"error": f"timed out after {timeout}s"}
@@ -295,8 +371,8 @@ def git_clone(workspace_path: str, url: str, subdir: str = "") -> dict:
     try:
         proc = subprocess.run(
             ["git", "clone", "--depth", "1", "--", url, str(target)],
-            cwd=str(base), env=SAFE_ENV, capture_output=True, text=True, timeout=180,
-            preexec_fn=_apply_exec_limits,
+            cwd=str(base), env=_exec_env(), capture_output=True, text=True, timeout=180,
+            preexec_fn=_exec_preexec(),
         )
     except subprocess.TimeoutExpired:
         return {"error": "clone timed out after 180s"}
@@ -322,14 +398,14 @@ def apply_patch(workspace_path: str, patch: str) -> dict:
         # Prefer git apply (no repo required with --unsafe-paths off; we stay in cwd).
         proc = subprocess.run(
             ["git", "apply", "--whitespace=nowarn", patch_file],
-            cwd=str(base), env=SAFE_ENV, capture_output=True, text=True, timeout=60,
-            preexec_fn=_apply_exec_limits,
+            cwd=str(base), env=_exec_env(), capture_output=True, text=True, timeout=60,
+            preexec_fn=_exec_preexec(),
         )
         if proc.returncode != 0:
             proc = subprocess.run(
                 ["patch", "-p1", "-i", patch_file],
-                cwd=str(base), env=SAFE_ENV, capture_output=True, text=True, timeout=60,
-                preexec_fn=_apply_exec_limits,
+                cwd=str(base), env=_exec_env(), capture_output=True, text=True, timeout=60,
+                preexec_fn=_exec_preexec(),
             )
         if proc.returncode != 0:
             return {"error": f"patch did not apply cleanly: {proc.stderr[:1500].strip() or proc.stdout[:1500].strip()}"}
@@ -373,7 +449,7 @@ def codebase_search(workspace_path: str, query: str, max_results: int = 12) -> d
             cmd += ["-e", t]
         cmd += ["."]  # explicit search path — without it, rg reads stdin under subprocess (no TTY)
         try:
-            proc = subprocess.run(cmd, cwd=str(base), env=SAFE_ENV, stdin=subprocess.DEVNULL,
+            proc = subprocess.run(cmd, cwd=str(base), env=_exec_env(), stdin=subprocess.DEVNULL,
                                   capture_output=True, text=True, timeout=20)
             raw = proc.stdout
         except (subprocess.TimeoutExpired, OSError):
