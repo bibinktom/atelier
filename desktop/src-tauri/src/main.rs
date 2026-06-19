@@ -30,14 +30,15 @@ fn read_backend_url() -> Option<String> {
 }
 
 fn navigate_when_ready(window: WebviewWindow) {
-    tauri::async_runtime::spawn(async move {
+    // Plain OS thread + std sleep — no async runtime / tokio dependency needed.
+    std::thread::spawn(move || {
         // The sidecar wins/loses races on first boot; give it up to ~60s.
         for _ in 0..240 {
             if let Some(url) = read_backend_url() {
                 let _ = window.eval(&format!("window.location.replace('{}')", url));
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            std::thread::sleep(Duration::from_millis(250));
         }
         let _ = window.eval(
             "document.body.innerHTML = '<p style=\"font-family:sans-serif;padding:2rem\">\
@@ -54,9 +55,13 @@ fn main() {
             let _ = std::fs::remove_file(data_dir().join("backend_url"));
 
             // Spawn the Python launcher sidecar (it starts backend + tools and
-            // tears them down on SIGTERM when this process exits).
-            let sidecar = app.shell().sidecar("atelier-launcher")?;
-            let (_rx, _child) = sidecar.spawn()?;
+            // tears them down on SIGTERM when this process exits). Tell it where the
+            // bundled UI lives so the backend serves it from the same origin.
+            let mut cmd = app.shell().sidecar("atelier-launcher")?;
+            if let Ok(res) = app.path().resource_dir() {
+                cmd = cmd.env("FRONTEND_DIST", res.join("frontend-dist").to_string_lossy().to_string());
+            }
+            let (_rx, _child) = cmd.spawn()?;
 
             if let Some(window) = app.get_webview_window("main") {
                 navigate_when_ready(window);

@@ -13,6 +13,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# Make cargo/rustc available even in a non-login shell.
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+EXE=""; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE=".exe";; esac
 
 echo "==> 1/4  Static frontend export"
 ( cd frontend && npm ci 2>/dev/null || npm install
@@ -23,12 +26,11 @@ pyinstaller --noconfirm --distpath desktop/dist --workpath desktop/build desktop
 pyinstaller --noconfirm --distpath desktop/dist --workpath desktop/build desktop/pyinstaller/atelier-tools.spec
 # The launcher (run_local.py) — onefile; it finds atelier-backend/atelier-tools as siblings.
 pyinstaller --noconfirm --onefile --name atelier-launcher \
-  --distpath desktop/dist --workpath desktop/build desktop/run_local.py
+  --distpath desktop/dist --workpath desktop/build --specpath desktop/build desktop/run_local.py
 
 echo "==> 3/4  Stage sidecars + frontend for Tauri"
 TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
 mkdir -p desktop/src-tauri/binaries desktop/src-tauri/frontend-dist
-EXE=""; [ "$(uname)" = "MINGW"* ] && EXE=".exe" || true
 for b in atelier-launcher atelier-backend atelier-tools; do
   cp "desktop/dist/$b$EXE" "desktop/src-tauri/binaries/$b-$TRIPLE$EXE"
 done

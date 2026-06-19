@@ -77,9 +77,18 @@ def _sidecar_cmd(name: str, cwd: Path, port: int) -> tuple[list[str], Path | Non
     """How to launch a service. Prefer a bundled PyInstaller binary (production:
     `atelier-backend` / `atelier-tools`, which collision-avoid by each owning its
     own `app` package); fall back to dev `python -m uvicorn`."""
-    explicit = os.environ.get(f"ATELIER_{name.upper().replace('-', '_')}_BIN")
-    sibling = Path(sys.executable).parent / f"atelier-{name}{'.exe' if os.name == 'nt' else ''}"
-    binary = explicit or (str(sibling) if getattr(sys, "frozen", False) and sibling.exists() else None)
+    binary = os.environ.get(f"ATELIER_{name.upper().replace('-', '_')}_BIN")
+    if not binary and getattr(sys, "frozen", False):
+        d = Path(sys.executable).parent
+        exact = d / f"atelier-{name}{'.exe' if os.name == 'nt' else ''}"
+        if exact.exists():
+            binary = str(exact)
+        else:
+            # Tauri bundles sidecars with a target-triple suffix (atelier-backend-<triple>).
+            for m in sorted(d.glob(f"atelier-{name}*")):
+                if m.is_file() and os.access(m, os.X_OK):
+                    binary = str(m)
+                    break
     if binary:
         return [binary, "--host", "127.0.0.1", "--port", str(port)], None
     return ([sys.executable, "-m", "uvicorn", "app.main:app",
