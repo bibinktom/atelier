@@ -73,9 +73,35 @@ to review/revoke). Ordinary edits, reads, builds and package installs never prom
 Disable with `PERMISSIONS_ENABLED=0`. Classifier + store live in
 `backend/app/permissions.py`; the gate is in `chat.py`'s `_node_act`.
 
-## Still TODO for a shippable release
+## Code signing
 
-- Code-signing + notarization (macOS) and signing (Windows) — needs Apple/MS
-  developer accounts; configure under `bundle` in `tauri.conf.json`.
+The CI is already wired for signing — it activates the moment you add the GitHub
+secrets (until then it builds unsigned, no-op). Repo → Settings → Secrets and
+variables → Actions.
+
+**macOS** (Apple Developer Program, $99/yr; Tauri signs + notarizes automatically):
+
+| Secret | What |
+|--------|------|
+| `APPLE_CERTIFICATE` | base64 of your **Developer ID Application** `.p12` (`base64 -i cert.p12 \| pbcopy`) |
+| `APPLE_CERTIFICATE_PASSWORD` | the password you set when exporting the `.p12` |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_ID` | your Apple ID email |
+| `APPLE_PASSWORD` | an **app-specific password** (appleid.apple.com → Sign-In & Security) |
+| `APPLE_TEAM_ID` | your 10-char Team ID (developer.apple.com → Membership) |
+
+**Windows** (the CI step is a template for an exportable `.pfx`):
+
+| Secret | What |
+|--------|------|
+| `WINDOWS_CERT_BASE64` | base64 of your code-signing `.pfx` |
+| `WINDOWS_CERT_PASSWORD` | its password |
+
+Modern OV/EV certs are HSM-only (no exportable `.pfx`) — for those use
+**Azure Trusted Signing** (~$10/mo) or DigiCert KeyLocker and swap the signing
+step for `azuresigntool`. Linux needs no signing; CI publishes `SHA256SUMS` instead.
+
+## Still TODO
+
 - Auto-update (tauri-plugin-updater) + a release feed.
-- App icons + branding (`tauri icon path/to/icon.png`).
+- Real app icons / branding (`tauri icon path/to/icon.png`).
