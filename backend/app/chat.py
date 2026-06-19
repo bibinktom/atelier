@@ -1456,7 +1456,9 @@ async def run_turn(*, cid: str, body: PostMessageBody, user: dict) -> AsyncItera
         workspace = db.ensure_default_workspace(user["id"])
         db.update_conversation(cid, workspace_id=workspace["id"])
         conv["workspace_id"] = workspace["id"]
-    workspace_path = f"{user['id']}/{workspace['slug']}"
+    # Local desktop build: a workspace maps to an absolute host folder (host_path);
+    # the host-mode tools accept it directly. Server build: the container path.
+    workspace_path = workspace.get("host_path") or f"{user['id']}/{workspace['slug']}"
 
     system_prompt = SYSTEM_PROMPT + memory.memory_block(user["id"], conversation_id=cid)
 

@@ -114,6 +114,10 @@ async def me(request: Request):
         # True once the user has connected their OpenRouter account. The encrypted
         # key itself is never returned — only whether one exists.
         "openrouter_connected": bool(user.get("openrouter_key_enc")),
+        # Local desktop build: the UI shows a folder picker (workspaces map to real
+        # host paths) and skips the multi-user / approval affordances.
+        "local": config.ATELIER_LOCAL,
+        "local_root": config.ATELIER_LOCAL_ROOT if config.ATELIER_LOCAL else None,
     }
 
 

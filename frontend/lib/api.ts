@@ -56,8 +56,10 @@ export const api = {
 
   listWorkspaces: () => jfetch<{ workspaces: any[] }>("/workspaces"),
   workspaceUsage: () => jfetch<{ used: number; quota: number; percent: number }>("/workspaces/usage"),
-  createWorkspace: (name: string) =>
-    jfetch("/workspaces", { method: "POST", body: JSON.stringify({ name }) }),
+  // `path` is honored only by the local desktop build: attach an absolute host
+  // folder (confined to the local root) instead of a container scratch dir.
+  createWorkspace: (name: string, path?: string) =>
+    jfetch("/workspaces", { method: "POST", body: JSON.stringify(path ? { name, path } : { name }) }),
   deleteWorkspace: (id: string) =>
     jfetch(`/workspaces/${id}`, { method: "DELETE" }),
 

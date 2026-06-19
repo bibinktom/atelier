@@ -8,6 +8,11 @@ import httpx
 # the host. The secrets that are mandatory for the shared server (NVIDIA / Google /
 # session) are optional here — see _required().
 ATELIER_LOCAL = os.environ.get("ATELIER_LOCAL", "0") not in {"0", "false", "False", ""}
+# Filesystem root the local agent may operate under (default: the user's home dir).
+# Mirrors tools/app/workspace.py's ATELIER_LOCAL_ROOT; used here to seed a default
+# workspace and to confine user-picked project folders.
+ATELIER_LOCAL_ROOT = os.path.abspath(os.path.expanduser(
+    os.environ.get("ATELIER_LOCAL_ROOT") or "~"))
 
 
 def _required(name: str, local_default: str = "") -> str:

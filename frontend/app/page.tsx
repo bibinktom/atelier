@@ -150,9 +150,9 @@ export default function Home() {
     }
   };
 
-  const onCreateWorkspace = async (name: string): Promise<Workspace | null> => {
+  const onCreateWorkspace = async (name: string, path?: string): Promise<Workspace | null> => {
     try {
-      const ws = await api.createWorkspace(name);
+      const ws = await api.createWorkspace(name, path);
       setWorkspaces(prev => [ws, ...prev]);
       return ws;
     } catch (e: any) { flashSync(e?.message?.slice(0, 120) || "Could not create folder"); return null; }
@@ -570,6 +570,8 @@ export default function Home() {
               syncing={syncing}
               fsaAvailable={fsa.fsaSupported()}
               usage={usage}
+              local={user?.local}
+              localRoot={user?.local_root}
             />
             {models.length > 0 && (
               <ModelPicker models={models} value={currentModelId} onChange={onModelChange} />

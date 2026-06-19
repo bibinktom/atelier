@@ -5,11 +5,15 @@ import { Workspace } from "@/lib/types";
 export function WorkspacePicker({
   workspaces, value, onChange, onCreate, onImportFolder,
   onLinkLocalFolder, onSyncNow, linkedIds, syncing, fsaAvailable, usage,
+  local, localRoot,
 }: {
   workspaces: Workspace[];
   value: string | null;
   onChange: (id: string) => void;
-  onCreate: (name: string) => Promise<Workspace | null>;
+  onCreate: (name: string, path?: string) => Promise<Workspace | null>;
+  // Local desktop build: workspaces map to real host folders under localRoot.
+  local?: boolean;
+  localRoot?: string | null;
   onImportFolder?: (files: FileList) => Promise<Workspace | null>;
   // Live two-way sync with a folder on the user's computer (File System Access API).
   onLinkLocalFolder?: () => void;
@@ -24,6 +28,7 @@ export function WorkspacePicker({
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newPath, setNewPath] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const current = workspaces.find(w => w.id === value);
@@ -41,10 +46,11 @@ export function WorkspacePicker({
   const submitNew = async () => {
     const n = newName.trim();
     if (!n) return;
-    const ws = await onCreate(n);
+    const p = local ? (newPath.trim() || undefined) : undefined;
+    const ws = await onCreate(n, p);
     if (ws) {
       onChange(ws.id);
-      setNewName(""); setCreating(false); setOpen(false);
+      setNewName(""); setNewPath(""); setCreating(false); setOpen(false);
     }
   };
 
@@ -100,20 +106,38 @@ export function WorkspacePicker({
           </ul>
           <div className="border-t" style={{ borderColor: "var(--color-rule-soft)" }}>
             {creating ? (
-              <div className="flex gap-1.5 p-2">
-                <input
-                  autoFocus
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") submitNew(); else if (e.key === "Escape") setCreating(false); }}
-                  placeholder="Folder name"
-                  className="flex-1 border bg-[var(--color-paper)] px-2 py-1.5 text-[13px] outline-none"
-                  style={{ borderColor: "var(--color-rule)" }}
-                />
-                <button onClick={submitNew}
-                  className="border px-2 py-1.5 text-[13px]"
-                  style={{ borderColor: "var(--color-ink)", background: "var(--color-ink)", color: "var(--color-paper)" }}
-                >Add</button>
+              <div className="flex flex-col gap-1.5 p-2">
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") submitNew(); else if (e.key === "Escape") setCreating(false); }}
+                    placeholder="Folder name"
+                    className="flex-1 border bg-[var(--color-paper)] px-2 py-1.5 text-[13px] outline-none"
+                    style={{ borderColor: "var(--color-rule)" }}
+                  />
+                  <button onClick={submitNew}
+                    className="border px-2 py-1.5 text-[13px]"
+                    style={{ borderColor: "var(--color-ink)", background: "var(--color-ink)", color: "var(--color-paper)" }}
+                  >Add</button>
+                </div>
+                {local && (
+                  <input
+                    value={newPath}
+                    onChange={e => setNewPath(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") submitNew(); else if (e.key === "Escape") setCreating(false); }}
+                    placeholder={localRoot ? `${localRoot}/my-project` : "/absolute/path/to/folder"}
+                    spellCheck={false}
+                    className="w-full border bg-[var(--color-paper)] px-2 py-1.5 font-mono text-[11.5px] outline-none"
+                    style={{ borderColor: "var(--color-rule)" }}
+                  />
+                )}
+                {local && (
+                  <p className="px-0.5 text-[10.5px]" style={{ color: "var(--color-muted)" }}>
+                    Absolute folder on this computer{localRoot ? ` (under ${localRoot})` : ""}. Leave blank for a folder inside the data dir.
+                  </p>
+                )}
               </div>
             ) : (
               <button
@@ -121,7 +145,7 @@ export function WorkspacePicker({
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition hover:bg-[var(--color-paper-3)]"
                 style={{ color: "var(--color-ink-2)" }}
               >
-                <span aria-hidden>＋</span> New empty project folder…
+                <span aria-hidden>＋</span> {local ? "Open a folder by path…" : "New empty project folder…"}
               </button>
             )}
             {onLinkLocalFolder && (

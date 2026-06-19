@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from typing import Iterator
 
+from . import config
 from .config import DB_PATH
 
 
@@ -265,6 +266,12 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL
             );
         """)
+        # Local desktop build: a workspace can map to an absolute host folder the
+        # user picked (host_path) instead of the container's /workspaces/<user>/<slug>.
+        ws_cols = {r["name"] for r in c.execute("PRAGMA table_info(workspaces)").fetchall()}
+        if "host_path" not in ws_cols:
+            c.execute("ALTER TABLE workspaces ADD COLUMN host_path TEXT")
+
         # Memory upgrades: categories, promotion bookkeeping, episodic scoping.
         mem_cols = {r["name"] for r in c.execute("PRAGMA table_info(memories)").fetchall()}
         if "category" not in mem_cols:
@@ -555,15 +562,16 @@ def get_workspace_by_slug(user_id: str, slug: str) -> dict | None:
         return dict(row) if row else None
 
 
-def create_workspace(user_id: str, name: str, slug: str) -> dict:
+def create_workspace(user_id: str, name: str, slug: str, host_path: str | None = None) -> dict:
     wid = new_id()
     t = now()
     with connect() as c:
         c.execute(
-            "INSERT INTO workspaces(id, user_id, name, slug, created_at) VALUES(?,?,?,?,?)",
-            (wid, user_id, name, slug, t),
+            "INSERT INTO workspaces(id, user_id, name, slug, host_path, created_at) VALUES(?,?,?,?,?,?)",
+            (wid, user_id, name, slug, host_path, t),
         )
-    return {"id": wid, "user_id": user_id, "name": name, "slug": slug, "created_at": t}
+    return {"id": wid, "user_id": user_id, "name": name, "slug": slug,
+            "host_path": host_path, "created_at": t}
 
 
 def delete_workspace(workspace_id: str, user_id: str) -> None:
@@ -572,10 +580,15 @@ def delete_workspace(workspace_id: str, user_id: str) -> None:
 
 
 def ensure_default_workspace(user_id: str) -> dict:
-    """Return user's first workspace, creating a 'General' one if none exist."""
+    """Return user's first workspace, creating one if none exist. In the local
+    desktop build the default maps to the configured host root (e.g. ~) so the
+    agent has a real folder to work in out of the box."""
     existing = list_workspaces(user_id)
     if existing:
         return existing[0]
+    if config.ATELIER_LOCAL:
+        return create_workspace(user_id, name=os.path.basename(config.ATELIER_LOCAL_ROOT) or "Home",
+                                slug="home", host_path=config.ATELIER_LOCAL_ROOT)
     return create_workspace(user_id, name="General", slug="general")
 
 

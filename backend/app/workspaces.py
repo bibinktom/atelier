@@ -31,6 +31,12 @@ def _workspace_dir(user_id: str, slug: str) -> str:
     return os.path.join(config.WORKSPACES_DIR, user_id, slug)
 
 
+def _ws_root(user_id: str, ws: dict) -> str:
+    """The on-disk root for a workspace: the user-picked absolute host folder
+    (local desktop build) or the container's /workspaces/<user>/<slug>."""
+    return ws.get("host_path") or _workspace_dir(user_id, ws["slug"])
+
+
 def _ensure_dir_user_writable(path: str) -> None:
     """Create the dir and best-effort hand it to host uid:gid 1000:1000 with mode 0777
     so the family member can edit those files from their normal file manager."""
@@ -47,17 +53,33 @@ def _ensure_dir_user_writable(path: str) -> None:
 
 class CreateWorkspaceBody(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    # Local desktop build only: an absolute host folder to attach as this workspace.
+    path: str | None = None
+
+
+def _validate_local_path(raw: str) -> str:
+    """Resolve a user-supplied absolute host folder and confine it to the configured
+    local root (default ~). Local desktop build only."""
+    p = os.path.abspath(os.path.expanduser(raw.strip()))
+    root = config.ATELIER_LOCAL_ROOT
+    if root != "/" and not (p == root or p.startswith(root + os.sep)):
+        raise HTTPException(400, f"folder must be inside {root}")
+    return p
 
 
 @router.get("/workspaces")
 async def list_user_workspaces(_: Request, user=Depends(require_user)):
     items = db.list_workspaces(user["id"])
     if not items:
-        items = [db.ensure_default_workspace(user["id"])]
-        try:
-            _ensure_dir_user_writable(_workspace_dir(user["id"], items[0]["slug"]))
-        except OSError:
-            pass
+        ws0 = db.ensure_default_workspace(user["id"])
+        items = [ws0]
+        # Only the container build needs its /workspaces/<user>/<slug> dir made;
+        # a host_path workspace (local build) already points at a real folder.
+        if not ws0.get("host_path"):
+            try:
+                _ensure_dir_user_writable(_workspace_dir(user["id"], ws0["slug"]))
+            except OSError:
+                pass
     return {"workspaces": items}
 
 
@@ -94,9 +116,18 @@ async def create_user_workspace(body: CreateWorkspaceBody, _: Request, user=Depe
     n = 2
     while db.get_workspace_by_slug(user["id"], slug):
         slug = f"{base_slug}-{n}"; n += 1
-    rec = db.create_workspace(user["id"], name=name, slug=slug)
+
+    # Local desktop build: attach an absolute host folder the user picked.
+    host_path = None
+    if config.ATELIER_LOCAL and body.path:
+        host_path = _validate_local_path(body.path)
+
+    rec = db.create_workspace(user["id"], name=name, slug=slug, host_path=host_path)
     try:
-        _ensure_dir_user_writable(_workspace_dir(user["id"], slug))
+        if host_path:
+            os.makedirs(host_path, exist_ok=True)   # user's own dir — no chown/chmod
+        else:
+            _ensure_dir_user_writable(_workspace_dir(user["id"], slug))
     except OSError as e:
         # Roll back the DB row if the directory can't be created — better to fail loudly than create
         # an orphan workspace the model will then try to write into.
@@ -132,7 +163,7 @@ def _safe_rel_path(rel: str) -> str:
 def _resolve(user_id: str, ws: dict, rel: str) -> str:
     """Return absolute server-side path for a user/workspace/relative path. Verified to stay inside the workspace."""
     rel = _safe_rel_path(rel)
-    root = os.path.realpath(_workspace_dir(user_id, ws["slug"]))
+    root = os.path.realpath(_ws_root(user_id, ws))
     target = os.path.realpath(os.path.join(root, rel))
     if not (target == root or target.startswith(root + os.sep)):
         raise HTTPException(400, "path escapes workspace")
