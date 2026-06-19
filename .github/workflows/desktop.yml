@@ -1,0 +1,114 @@
+name: Desktop installers
+
+# Build the Atelier desktop app for Linux, macOS and Windows. On a `v*` tag the
+# installers are attached to a GitHub Release; manual runs upload them as
+# workflow artifacts. See desktop/README.md for the architecture.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create/upload the Release on tags
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04     # AppImage glibc compat + webkit2gtk-4.1
+          - os: macos-13         # Intel (x86_64) .dmg
+          - os: macos-14         # Apple Silicon (arm64) .dmg
+          - os: windows-latest   # .msi + NSIS .exe
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Linux system dependencies (Tauri)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Python deps (sidecar runtime + PyInstaller)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r tools/requirements.txt pyserial pyinstaller
+
+      - name: Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Build frontend (static export)
+        shell: bash
+        working-directory: frontend
+        env:
+          DESKTOP_EXPORT: "1"
+          NEXT_PUBLIC_BACKEND_URL: ""
+        run: |
+          npm ci
+          npm run build
+
+      - name: Bundle Python sidecars (PyInstaller)
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --distpath desktop/dist --workpath desktop/build desktop/pyinstaller/atelier-backend.spec
+          pyinstaller --noconfirm --distpath desktop/dist --workpath desktop/build desktop/pyinstaller/atelier-tools.spec
+          pyinstaller --noconfirm --onefile --name atelier-launcher \
+            --distpath desktop/dist --workpath desktop/build --specpath desktop/build desktop/run_local.py
+
+      - name: Stage sidecars + frontend for Tauri
+        shell: bash
+        run: python desktop/ci_stage.py
+
+      - name: Tauri build
+        shell: bash
+        working-directory: desktop/src-tauri
+        run: tauri build
+
+      - name: Upload installers (workflow artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: atelier-${{ matrix.os }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.deb
+            desktop/src-tauri/target/release/bundle/**/*.rpm
+            desktop/src-tauri/target/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.msi
+            desktop/src-tauri/target/release/bundle/**/*-setup.exe
+
+      - name: Attach to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          fail_on_unmatched_files: false
+          files: |
+            desktop/src-tauri/target/release/bundle/**/*.deb
+            desktop/src-tauri/target/release/bundle/**/*.rpm
+            desktop/src-tauri/target/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.msi
+            desktop/src-tauri/target/release/bundle/**/*-setup.exe
