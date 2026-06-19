@@ -10,10 +10,10 @@ TOOLS = os.path.join(REPO, "tools")
 
 a = Analysis(
     [os.path.join(REPO, "desktop", "pyinstaller", "serve.py")],
-    pathex=[TOOLS],                         # so `app` == tools/app
+    pathex=[TOOLS],                         # so `app` == tools/app (serve.py imports it)
     binaries=[],
     datas=[],
-    hiddenimports=(collect_submodules("app") + collect_submodules("uvicorn")
+    hiddenimports=(collect_submodules("uvicorn")
                    + ["uvicorn.lifespan.on", "uvicorn.loops.auto",
                       "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto",
                       "serial.tools.list_ports"]),

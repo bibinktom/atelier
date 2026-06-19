@@ -9,6 +9,12 @@ import argparse
 
 import uvicorn
 
+# Import the app module directly (not just as a "app.main:app" string) so
+# PyInstaller's static analysis follows it and bundles the whole `app` package
+# into the binary. Each binary's `app` is resolved from its spec's pathex
+# (backend/ or tools/), so the two never collide.
+import app.main  # noqa: F401
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()

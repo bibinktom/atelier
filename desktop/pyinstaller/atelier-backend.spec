@@ -9,11 +9,11 @@ BACKEND = os.path.join(REPO, "backend")
 
 a = Analysis(
     [os.path.join(REPO, "desktop", "pyinstaller", "serve.py")],
-    pathex=[BACKEND],                       # so `app` == backend/app
+    pathex=[BACKEND],                       # so `app` == backend/app (serve.py imports it)
     binaries=[],
     datas=[],
-    # uvicorn/fastapi load workers + the app graph dynamically.
-    hiddenimports=(collect_submodules("app") + collect_submodules("uvicorn")
+    # uvicorn loads loop/protocol workers dynamically; force them in.
+    hiddenimports=(collect_submodules("uvicorn")
                    + ["uvicorn.lifespan.on", "uvicorn.loops.auto",
                       "uvicorn.protocols.http.auto", "uvicorn.protocols.websockets.auto"]),
     hookspath=[],
