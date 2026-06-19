@@ -108,6 +108,11 @@ def main() -> int:
         "ATELIER_PYENV_DIR": str(data_dir / "pyenv"),
         "PYTHONUNBUFFERED": "1",
     }
+    # If a static frontend export exists (built or bundled), serve it from the
+    # backend so a single URL gives the whole app. FRONTEND_DIST env overrides.
+    frontend_dist = os.environ.get("FRONTEND_DIST") or str(REPO / "frontend" / "out")
+    serve_frontend = os.path.isdir(frontend_dist)
+
     tools_env = {**common, "FILES_DIR": str(data_dir / "files")}
     backend_env = {
         **common,
@@ -122,6 +127,7 @@ def main() -> int:
         # Offline-friendly defaults for a local boot.
         "SKILLS_CATALOG_ENABLED": os.environ.get("SKILLS_CATALOG_ENABLED", "0"),
         "FIREWALL_ENABLED": "1" if args.firewall else os.environ.get("FIREWALL_ENABLED", "0"),
+        **({"FRONTEND_DIST": frontend_dist} if serve_frontend else {}),
     }
 
     # Trap SIGTERM (what the Tauri shell / a `kill` sends on close) and turn it into

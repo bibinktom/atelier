@@ -12,3 +12,4 @@ generated-files/
 .DS_Store
 .venv-local/
 .atelier/
+frontend/out/

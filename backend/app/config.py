@@ -184,6 +184,11 @@ DB_PATH = DATABASE_URL.replace("sqlite:///", "")
 FILES_DIR = os.environ.get("FILES_DIR", "/files")
 WORKSPACES_DIR = os.environ.get("WORKSPACES_DIR", "/workspaces")
 
+# Desktop build: a directory of the statically-exported Next.js frontend. When set
+# (and present), the backend serves the UI itself, so the Tauri webview loads a
+# single origin (UI + API) — no separate frontend server, no CORS.
+FRONTEND_DIST = os.environ.get("FRONTEND_DIST", "").strip()
+
 
 # ---- planner ----
 # Pre-flight planning step: before the orchestrator's tool-call loop, a thinking

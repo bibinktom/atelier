@@ -1,7 +1,11 @@
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 import asyncio
@@ -87,3 +91,29 @@ app.include_router(tips.router)
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+
+# Desktop build: serve the statically-exported frontend from this same origin.
+# Registered LAST so every API route above wins. Resolves Next export layout —
+# exact file, `<path>.html`, or `<path>/index.html` — with an SPA fallback to
+# index.html for unknown client routes (deep-link / hard reload).
+if config.FRONTEND_DIST and os.path.isdir(config.FRONTEND_DIST):
+    _DIST = Path(config.FRONTEND_DIST).resolve()
+
+    @app.get("/{path:path}")
+    def _serve_frontend(path: str):
+        for cand in (_DIST / path, _DIST / f"{path}.html", _DIST / path / "index.html"):
+            try:
+                resolved = cand.resolve()
+                resolved.relative_to(_DIST)          # block path traversal
+            except (ValueError, OSError):
+                continue
+            if resolved.is_file():
+                return FileResponse(resolved)
+        # A missing asset is a real 404; an unknown route falls back to the SPA shell.
+        last = path.rsplit("/", 1)[-1]
+        if path.startswith("_next/") or "." in last:
+            raise HTTPException(404)
+        return FileResponse(_DIST / "index.html")
+
+    print(f"[main] serving bundled frontend from {_DIST}", flush=True)
