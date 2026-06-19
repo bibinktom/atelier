@@ -80,6 +80,11 @@ def _purge_workspace_files(stats: dict) -> None:
 
 
 def purge_expired_now() -> dict:
+    # Hard backstop: in local desktop mode WORKSPACES_DIR is the user's real home
+    # directory. The retention sweep must NEVER run there — it would delete the
+    # user's own files. This is a shared-server-only control.
+    if config.ATELIER_LOCAL:
+        return {"conversations": 0, "files": 0, "workspace_files": 0, "workspace_dirs": 0}
     stats = _purge_db_and_files()
     _purge_workspace_files(stats)
     return stats

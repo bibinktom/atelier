@@ -37,16 +37,24 @@ async def lifespan(_app: FastAPI):
     asyncio.create_task(catalog.refresh_if_stale())
     # Privacy: sweep chats / files / workspace artifacts older than 24h.
     # Run once at boot so a cold start after downtime catches up immediately,
-    # then hourly thereafter.
-    try:
-        cleanup.purge_expired_now()
-    except Exception as e:
-        print(f"[cleanup] boot sweep failed: {e}", flush=True)
-    cleanup_task = asyncio.create_task(cleanup.cleanup_loop())
+    # then hourly thereafter. NEVER in local desktop mode — there WORKSPACES_DIR
+    # is the user's real home directory, and the sweep would delete their own
+    # files. The 24h retention is a shared-server privacy control, not a personal
+    # one; on a local install the user owns their data outright.
+    cleanup_task = None
+    if config.ATELIER_LOCAL:
+        print("[cleanup] disabled in local mode (would target the user's home dir)", flush=True)
+    else:
+        try:
+            cleanup.purge_expired_now()
+        except Exception as e:
+            print(f"[cleanup] boot sweep failed: {e}", flush=True)
+        cleanup_task = asyncio.create_task(cleanup.cleanup_loop())
     try:
         yield
     finally:
-        cleanup_task.cancel()
+        if cleanup_task is not None:
+            cleanup_task.cancel()
         scheduler.shutdown_scheduler()
 
 

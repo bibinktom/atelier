@@ -199,10 +199,10 @@ def main() -> int:
         procs.append(_spawn("tools", TOOLS_DIR, tools_port, tools_env, data_dir))
         procs.append(_spawn("backend", BACKEND_DIR, backend_port, backend_env, data_dir))
 
-        if not _wait_health(f"http://127.0.0.1:{tools_port}/healthz"):
+        if not _wait_health(f"http://127.0.0.1:{tools_port}/healthz", timeout=60.0):
             _log("[run_local] tools failed health check; last output:\n" + _tail("tools"))
             return 1
-        if not _wait_health(f"{backend_url}/auth/me"):
+        if not _wait_health(f"{backend_url}/auth/me", timeout=60.0):
             _log("[run_local] backend failed health check; last output:\n" + _tail("backend"))
             return 1
 
