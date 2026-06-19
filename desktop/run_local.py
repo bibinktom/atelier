@@ -73,11 +73,23 @@ def _fernet_key() -> str:
     return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
 
 
+def _sidecar_cmd(name: str, cwd: Path, port: int) -> tuple[list[str], Path | None]:
+    """How to launch a service. Prefer a bundled PyInstaller binary (production:
+    `atelier-backend` / `atelier-tools`, which collision-avoid by each owning its
+    own `app` package); fall back to dev `python -m uvicorn`."""
+    explicit = os.environ.get(f"ATELIER_{name.upper().replace('-', '_')}_BIN")
+    sibling = Path(sys.executable).parent / f"atelier-{name}{'.exe' if os.name == 'nt' else ''}"
+    binary = explicit or (str(sibling) if getattr(sys, "frozen", False) and sibling.exists() else None)
+    if binary:
+        return [binary, "--host", "127.0.0.1", "--port", str(port)], None
+    return ([sys.executable, "-m", "uvicorn", "app.main:app",
+             "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"], cwd)
+
+
 def _spawn(name: str, cwd: Path, port: int, env: dict) -> subprocess.Popen:
-    cmd = [sys.executable, "-m", "uvicorn", "app.main:app",
-           "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"]
+    cmd, run_cwd = _sidecar_cmd(name, cwd, port)
     print(f"[run_local] starting {name} on 127.0.0.1:{port}")
-    return subprocess.Popen(cmd, cwd=str(cwd), env=env)
+    return subprocess.Popen(cmd, cwd=(str(run_cwd) if run_cwd else None), env=env)
 
 
 def main() -> int:

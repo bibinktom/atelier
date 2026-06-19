@@ -13,3 +13,8 @@ generated-files/
 .venv-local/
 .atelier/
 frontend/out/
+desktop/dist/
+desktop/build/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+desktop/src-tauri/frontend-dist/
