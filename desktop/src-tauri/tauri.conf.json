@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Atelier",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.atelier.desktop",
   "build": {
     "frontendDist": "../shell"
@@ -21,7 +21,10 @@
       "binaries/atelier-backend",
       "binaries/atelier-tools"
     ],
-    "resources": ["frontend-dist/**/*"]
+    "resources": ["frontend-dist/**/*"],
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    }
   },
   "plugins": {}
 }

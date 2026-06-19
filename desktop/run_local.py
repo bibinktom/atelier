@@ -95,10 +95,32 @@ def _sidecar_cmd(name: str, cwd: Path, port: int) -> tuple[list[str], Path | Non
              "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"], cwd)
 
 
-def _spawn(name: str, cwd: Path, port: int, env: dict) -> subprocess.Popen:
+_LOG_FH = None  # launcher log file handle; set in main()
+
+
+def _log(msg: str) -> None:
+    """Write a launcher line to stderr *and* the persisted launcher.log, so the
+    'See ~/.atelier for logs' the Tauri shell shows actually has something to read."""
+    print(msg, file=sys.stderr)
+    if _LOG_FH is not None:
+        try:
+            _LOG_FH.write(msg + "\n")
+            _LOG_FH.flush()
+        except Exception:
+            pass
+
+
+def _spawn(name: str, cwd: Path, port: int, env: dict, log_dir: Path) -> subprocess.Popen:
     cmd, run_cwd = _sidecar_cmd(name, cwd, port)
-    print(f"[run_local] starting {name} on 127.0.0.1:{port}")
-    return subprocess.Popen(cmd, cwd=(str(run_cwd) if run_cwd else None), env=env)
+    _log(f"[run_local] starting {name} on 127.0.0.1:{port}  (cmd: {cmd[0]})")
+    # Capture each sidecar's stdout+stderr to its own log file. A PyInstaller /
+    # dlopen / import crash prints here, which is the difference between a
+    # diagnosable failure and a silent "failed to start its local services".
+    out = open(log_dir / f"{name}.log", "w")
+    return subprocess.Popen(
+        cmd, cwd=(str(run_cwd) if run_cwd else None), env=env,
+        stdout=out, stderr=subprocess.STDOUT,
+    )
 
 
 def main() -> int:
@@ -114,6 +136,14 @@ def main() -> int:
     data_dir = Path(args.data_dir).expanduser().resolve()
     (data_dir / "files").mkdir(parents=True, exist_ok=True)
     root = Path(args.root).expanduser().resolve()
+
+    global _LOG_FH
+    try:
+        _LOG_FH = open(data_dir / "launcher.log", "w")
+    except Exception:
+        _LOG_FH = None
+    _log(f"[run_local] data dir: {data_dir}")
+    _log(f"[run_local] frozen: {getattr(sys, 'frozen', False)}  executable: {sys.executable}")
 
     tools_port = _free_port()
     backend_port = args.backend_port or _free_port()
@@ -157,31 +187,39 @@ def main() -> int:
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _on_term)
 
+    def _tail(name: str, n: int = 25) -> str:
+        try:
+            lines = (data_dir / f"{name}.log").read_text(errors="replace").splitlines()
+            return "\n".join(lines[-n:])
+        except Exception:
+            return "(no log)"
+
     procs: list[subprocess.Popen] = []
     try:
-        procs.append(_spawn("tools", TOOLS_DIR, tools_port, tools_env))
-        procs.append(_spawn("backend", BACKEND_DIR, backend_port, backend_env))
+        procs.append(_spawn("tools", TOOLS_DIR, tools_port, tools_env, data_dir))
+        procs.append(_spawn("backend", BACKEND_DIR, backend_port, backend_env, data_dir))
 
         if not _wait_health(f"http://127.0.0.1:{tools_port}/healthz"):
-            print("[run_local] tools failed health check", file=sys.stderr)
+            _log("[run_local] tools failed health check; last output:\n" + _tail("tools"))
             return 1
         if not _wait_health(f"{backend_url}/auth/me"):
-            print("[run_local] backend failed health check", file=sys.stderr)
+            _log("[run_local] backend failed health check; last output:\n" + _tail("backend"))
             return 1
 
         # Hand the chosen URL to whatever wraps us (the Tauri shell reads this).
         (data_dir / "backend_url").write_text(backend_url)
-        print(f"[run_local] READY — backend at {backend_url}  (root: {root})")
-        print("[run_local] Ctrl+C to stop.")
+        _log(f"[run_local] READY — backend at {backend_url}  (root: {root})")
+        _log("[run_local] Ctrl+C to stop.")
 
         while True:
             for p in procs:
                 if p.poll() is not None:
-                    print(f"[run_local] a service exited (code {p.returncode}); shutting down", file=sys.stderr)
+                    name = "tools" if p is procs[0] else "backend"
+                    _log(f"[run_local] {name} exited (code {p.returncode}); shutting down. last output:\n" + _tail(name))
                     return p.returncode or 1
             time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\n[run_local] stopping…")
+        _log("\n[run_local] stopping…")
         return 0
     finally:
         for p in procs:
