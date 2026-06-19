@@ -18,3 +18,4 @@ desktop/build/
 desktop/src-tauri/target/
 desktop/src-tauri/binaries/
 desktop/src-tauri/frontend-dist/
+desktop/icon-source.png
