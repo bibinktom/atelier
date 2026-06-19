@@ -33,7 +33,7 @@ export function Sidebar({
   onNew: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
-  user: { name: string; email: string; picture: string; is_admin?: boolean } | null;
+  user: { name: string; email: string; picture: string; is_admin?: boolean; local?: boolean } | null;
 }) {
   const grouped = useMemo(() => groupByDay(conversations), [conversations]);
   const [adminOpen, setAdminOpen] = useState(false);
@@ -146,7 +146,7 @@ export function Sidebar({
             Atelier
           </h1>
           <p className="mt-1.5 text-[10.5px] uppercase tracking-[0.22em]" style={{ color: "var(--color-muted)" }}>
-            Family workspace
+            {user?.local ? "Personal workspace" : "Family workspace"}
           </p>
         </Link>
         <div className="flex-none mt-0.5">

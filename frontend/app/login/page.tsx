@@ -1,11 +1,31 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, BACKEND } from "@/lib/api";
+import { api, BACKEND, ATELIER_LOCAL } from "@/lib/api";
 import { TomoseMark } from "@/components/TomoseMark";
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
+
+  // Local desktop build: there is no sign-in. Reaching /login here only means the
+  // backend hasn't finished booting yet — poll /auth/me and slip into the app the
+  // moment it answers. No Google, no allowlist, no admin.
   useEffect(() => {
+    if (!ATELIER_LOCAL) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        await api.me();
+        if (alive) window.location.replace("/");
+      } catch {
+        if (alive) setTimeout(tick, 1000);
+      }
+    };
+    tick();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (ATELIER_LOCAL) return;
     const u = new URL(window.location.href);
     const e = u.searchParams.get("error");
     if (e === "not_allowed") setError("That email isn't on the family allowlist.");
@@ -18,6 +38,25 @@ export default function LoginPage() {
       setError(`Can't reach the server. Ask the admin to check the ${host} tunnel route.`);
     }
   }, []);
+
+  if (ATELIER_LOCAL) {
+    return (
+      <main className="relative grid min-h-dvh place-items-center px-6">
+        <div className="relative w-full max-w-[420px] text-center">
+          <h1 className="h-display text-[44px] leading-[1.0] tracking-tight">Atelier</h1>
+          <p className="mt-4 text-[15px] leading-relaxed" style={{ color: "var(--color-ink-2)" }}>
+            Starting your local workspace…
+          </p>
+          <p className="mt-2 text-[12px]" style={{ color: "var(--color-muted)" }}>
+            This runs entirely on your computer. One moment while the services come up.
+          </p>
+        </div>
+        <footer className="absolute inset-x-0 bottom-5 flex justify-center">
+          <TomoseMark />
+        </footer>
+      </main>
+    );
+  }
 
   return (
     <main className="relative grid min-h-dvh place-items-center px-6">

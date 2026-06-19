@@ -64,6 +64,7 @@ jobs:
         env:
           DESKTOP_EXPORT: "1"
           NEXT_PUBLIC_BACKEND_URL: ""
+          NEXT_PUBLIC_ATELIER_LOCAL: "1"
         run: |
           npm ci
           npm run build

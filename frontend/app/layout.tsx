@@ -23,8 +23,8 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Atelier — family AI workspace",
-  description: "A private home for the family's research, writing, and document work.",
+  title: "Atelier",
+  description: "A private AI workspace for research, writing, spreadsheets, and slide decks.",
   manifest: "/manifest.webmanifest",
   applicationName: "Atelier",
   appleWebApp: {

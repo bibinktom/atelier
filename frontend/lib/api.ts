@@ -1,5 +1,18 @@
+// Backend base URL resolution:
+//   unset      → dev default (frontend on :3000, backend on :8000)
+//   "" (empty) → same-origin: the desktop build is served by the backend itself,
+//                so relative paths ("/auth/me") hit the right port automatically.
+//                NB: `"" || default` used to collapse to localhost:8000 — the bug
+//                that made the packaged app fail every request and fall back to the
+//                Google login screen.
+//   absolute   → explicit (shared-server prod points this at the public URL)
+const RAW_BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL;
 export const BACKEND =
-  process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "") || "http://localhost:8000";
+  RAW_BACKEND == null ? "http://localhost:8000" : RAW_BACKEND.replace(/\/$/, "");
+
+// Local desktop build (Tauri, ATELIER_LOCAL=1): one auto-logged-in user, no
+// Google OAuth, no admin/allowlist. Baked at build time by the desktop CI job.
+export const ATELIER_LOCAL = process.env.NEXT_PUBLIC_ATELIER_LOCAL === "1";
 
 function bounceToLogin(reason?: "unreachable") {
   if (typeof window === "undefined") return;
