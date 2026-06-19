@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Markdown } from "./Markdown";
 import { ToolChip } from "./ToolChip";
 import { UserQuestionChip } from "./UserQuestionChip";
@@ -10,18 +10,19 @@ import { FirewallNotice } from "./FirewallNotice";
 import { FileChip } from "./FileChip";
 import { TipsRotator } from "./TipsRotator";
 import { api } from "@/lib/api";
-import { AssistantTurn, FileRec, StoredMessage } from "@/lib/types";
+import { AssistantTurn, FileRec, StoredMessage, PermissionRequest } from "@/lib/types";
 
 export type RenderMessage =
   | { kind: "user"; id: string; text: string; error?: string; images: { mime: string; filename: string; file_id?: string; previewSrc?: string }[] }
   | { kind: "assistant"; turn: AssistantTurn; streaming: boolean };
 
 export function MessageList({
-  messages, userInitial, onAnswer,
+  messages, userInitial, onAnswer, onPermission,
 }: {
   messages: RenderMessage[];
   userInitial: string;
   onAnswer?: (text: string) => void;
+  onPermission?: (requestId: string, decision: "allow" | "deny" | "always") => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages]);
@@ -32,7 +33,7 @@ export function MessageList({
         m.kind === "user" ? (
           <UserMsg key={"u" + i} m={m} initial={userInitial} />
         ) : (
-          <AssistantMsg key={"a" + i} turn={m.turn} streaming={m.streaming} onAnswer={onAnswer} />
+          <AssistantMsg key={"a" + i} turn={m.turn} streaming={m.streaming} onAnswer={onAnswer} onPermission={onPermission} />
         )
       )}
       <div ref={endRef} />
@@ -87,7 +88,7 @@ function UserMsg({ m, initial }: { m: Extract<RenderMessage, { kind: "user" }>; 
   );
 }
 
-function AssistantMsg({ turn, streaming, onAnswer }: { turn: AssistantTurn; streaming: boolean; onAnswer?: (text: string) => void }) {
+function AssistantMsg({ turn, streaming, onAnswer, onPermission }: { turn: AssistantTurn; streaming: boolean; onAnswer?: (text: string) => void; onPermission?: (requestId: string, decision: "allow" | "deny" | "always") => void }) {
   const showCursor = streaming && !turn.done;
   // ask_user_question chips render full-width below the row of normal tool chips,
   // because they're an interactive prompt not a status indicator.
@@ -107,6 +108,9 @@ function AssistantMsg({ turn, streaming, onAnswer }: { turn: AssistantTurn; stre
         {turn.tasks && turn.tasks.length > 0 && <TaskListPanel tasks={turn.tasks} />}
         {turn.reflect && <div className="mb-2.5"><ReflectChip reflect={turn.reflect} /></div>}
         {turn.firewall && <div className="mb-2.5"><FirewallNotice firewall={turn.firewall} /></div>}
+        {turn.pendingPermission && (
+          <PermissionPrompt req={turn.pendingPermission} onDecide={onPermission ?? (() => {})} />
+        )}
         {otherChips.length > 0 && (
           <div className="mb-2.5 flex flex-wrap gap-1.5">
             {otherChips.map(tc => <ToolChip key={tc.id} tc={tc} />)}
@@ -189,4 +193,48 @@ export function fromStored(stored: StoredMessage[], filesById: Map<string, FileR
   }
   flush();
   return out;
+}
+
+// Local desktop build: confirm a destructive/device command before it runs.
+function PermissionPrompt({
+  req, onDecide,
+}: {
+  req: PermissionRequest;
+  onDecide: (requestId: string, decision: "allow" | "deny" | "always") => void;
+}) {
+  const [chosen, setChosen] = useState<string | null>(null);
+  const high = req.severity === "high";
+  const pick = (d: "allow" | "deny" | "always") => { setChosen(d); onDecide(req.id, d); };
+  return (
+    <div
+      className="mb-2.5 border-l-2 px-3.5 py-3 text-[13px]"
+      style={{
+        borderColor: high ? "var(--color-brick)" : "var(--color-ink)",
+        background: "var(--color-brick-soft)", color: "var(--color-ink)", maxWidth: 560,
+      }}
+    >
+      <div className="mb-1 text-[10px] uppercase tracking-[0.22em]" style={{ color: "var(--color-brick)" }}>
+        ⚠ Confirm action{high ? " · high risk" : ""}
+      </div>
+      <div className="mb-1.5">The assistant wants to <b>{req.reason}</b> on your computer.</div>
+      {req.command && (
+        <pre className="mb-2 overflow-x-auto whitespace-pre-wrap rounded px-2 py-1.5 text-[12px]"
+             style={{ background: "var(--color-paper-3)", color: "var(--color-ink-2)" }}>{req.command}</pre>
+      )}
+      {chosen ? (
+        <div className="text-[12px]" style={{ color: "var(--color-ink-2)" }}>
+          {chosen === "deny" ? "Denied — not run." : chosen === "always" ? "Allowed (won’t ask again for this)." : "Allowed."}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={() => pick("allow")} className="border px-2.5 py-1 text-[12px] transition hover:bg-[var(--color-paper-3)]"
+            style={{ borderColor: "var(--color-ink)", background: "var(--color-ink)", color: "var(--color-paper)" }}>Allow once</button>
+          <button onClick={() => pick("always")} className="border px-2.5 py-1 text-[12px] transition hover:bg-[var(--color-paper-3)]"
+            style={{ borderColor: "var(--color-ink)", color: "var(--color-ink)" }}>Always allow</button>
+          <button onClick={() => pick("deny")} className="border px-2.5 py-1 text-[12px] transition hover:bg-[var(--color-paper-3)]"
+            style={{ borderColor: "var(--color-brick)", color: "var(--color-brick)" }}>Deny</button>
+        </div>
+      )}
+    </div>
+  );
 }

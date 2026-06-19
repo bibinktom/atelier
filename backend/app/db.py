@@ -266,6 +266,16 @@ def init_db() -> None:
                 updated_at INTEGER NOT NULL
             );
         """)
+        # Local desktop build: "always allow" rules for the action-permission gate.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS permission_rules (
+                user_id TEXT NOT NULL,
+                rule_key TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, rule_key)
+            );
+        """)
+
         # Local desktop build: a workspace can map to an absolute host folder the
         # user picked (host_path) instead of the container's /workspaces/<user>/<slug>.
         ws_cols = {r["name"] for r in c.execute("PRAGMA table_info(workspaces)").fetchall()}
@@ -842,6 +852,31 @@ def list_firewall_policies() -> dict[str, dict]:
     with connect() as c:
         rows = c.execute("SELECT * FROM firewall_policy").fetchall()
     return {r["user_id"]: {k: r[k] for k in _POLICY_COLS} for r in rows}
+
+
+def is_permission_allowed(user_id: str, rule_key: str) -> bool:
+    with connect() as c:
+        return c.execute("SELECT 1 FROM permission_rules WHERE user_id = ? AND rule_key = ?",
+                         (user_id, rule_key)).fetchone() is not None
+
+
+def add_permission_rule(user_id: str, rule_key: str) -> None:
+    with connect() as c:
+        c.execute("INSERT OR IGNORE INTO permission_rules(user_id, rule_key, created_at) "
+                  "VALUES(?,?,?)", (user_id, rule_key, now()))
+
+
+def list_permission_rules(user_id: str) -> list[dict]:
+    with connect() as c:
+        rows = c.execute("SELECT rule_key, created_at FROM permission_rules WHERE user_id = ? "
+                         "ORDER BY created_at DESC", (user_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_permission_rule(user_id: str, rule_key: str) -> None:
+    with connect() as c:
+        c.execute("DELETE FROM permission_rules WHERE user_id = ? AND rule_key = ?",
+                  (user_id, rule_key))
 
 
 def list_users() -> list[dict]:

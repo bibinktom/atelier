@@ -127,6 +127,17 @@ export type PlanView = {
   model?: string;
 };
 
+// Local desktop build: a paused turn waiting for the user to confirm a
+// destructive/device command (Allow / Deny / Always-allow).
+export type PermissionRequest = {
+  id: string;
+  tool: string;
+  reason: string;
+  severity: string;
+  command: string;
+  rule_key: string;
+};
+
 export type ReflectView = {
   status: "running" | "ok" | "issues";
   issues?: string[];
@@ -171,6 +182,7 @@ export type AssistantTurn = {
   plan?: PlanView;
   reflect?: ReflectView;
   firewall?: FirewallView;
+  pendingPermission?: PermissionRequest;
   toolCalls: ToolCallView[];
   files: FileRec[];
   tasks?: TaskItem[];

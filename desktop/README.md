@@ -62,8 +62,20 @@ use CI matrix runners); Tauri does not cross-compile the installers.
 Add app icons under `desktop/src-tauri/icons/` (`tauri icon path/to/icon.png`
 generates every size) before the final build.
 
-## Still TODO for a shippable release (Phase D)
+## Permission gate (Phase D — shipped)
 
-- Permission prompts for destructive/device actions (rm, flash, adb writes).
-- Code-signing + notarization (macOS) and signing (Windows); auto-update.
-- App icons + branding.
+On the local build the agent asks before genuinely destructive or device-writing
+commands — `rm -rf`, `mkfs`/`dd`, `sudo`, `git push --force`, `esptool`/`arduino-cli`
+flashing, `adb install/push`, `curl … | sh`, etc. The turn pauses, the UI shows
+**Allow once / Always allow / Deny**, and the decision resolves the turn server-side.
+"Always allow" whitelists that command class for the user (`GET/DELETE /permissions`
+to review/revoke). Ordinary edits, reads, builds and package installs never prompt.
+Disable with `PERMISSIONS_ENABLED=0`. Classifier + store live in
+`backend/app/permissions.py`; the gate is in `chat.py`'s `_node_act`.
+
+## Still TODO for a shippable release
+
+- Code-signing + notarization (macOS) and signing (Windows) — needs Apple/MS
+  developer accounts; configure under `bundle` in `tauri.conf.json`.
+- Auto-update (tauri-plugin-updater) + a release feed.
+- App icons + branding (`tauri icon path/to/icon.png`).

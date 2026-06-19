@@ -142,6 +142,12 @@ export const api = {
   approveUser: (uid: string) => jfetch(`/auth/admin/approve/${uid}`, { method: "POST", body: JSON.stringify({}) }),
   denyUser: (uid: string) => jfetch(`/auth/admin/deny/${uid}`, { method: "POST", body: JSON.stringify({}) }),
   // Admin: AI-firewall event log + aggregate counts. 403 unless caller is admin.
+  // Local desktop build: resolve a paused permission_request (allow|deny|always).
+  submitPermission: (cid: string, requestId: string, decision: "allow" | "deny" | "always") =>
+    jfetch(`/conversations/${cid}/permission`, {
+      method: "POST", body: JSON.stringify({ request_id: requestId, decision }),
+    }),
+
   listFirewallEvents: (limit = 100) =>
     jfetch<{ events: any[]; counts: { total: number; by_phase: Record<string, number>; by_status: Record<string, number> } }>(
       `/auth/admin/firewall?limit=${limit}`),

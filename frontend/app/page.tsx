@@ -408,6 +408,22 @@ export default function Home() {
             }
           }
           push();
+        } else if (ev.event === "permission_request") {
+          // The backend paused this turn for a destructive/device command. Show the
+          // Allow/Deny/Always prompt; the turn's SSE stream stays open until the
+          // user's decision is POSTed (which resolves it server-side).
+          turn.pendingPermission = {
+            id: String(ev.data?.id || ""),
+            tool: String(ev.data?.tool || ""),
+            reason: String(ev.data?.reason || ""),
+            severity: String(ev.data?.severity || "medium"),
+            command: String(ev.data?.command || ""),
+            rule_key: String(ev.data?.rule_key || ""),
+          };
+          push();
+        } else if (ev.event === "permission_decision") {
+          turn.pendingPermission = undefined;
+          push();
         } else if (ev.event === "error") {
           const msg = (ev.data && (ev.data.message || ev.data.error)) || (typeof ev.data === "string" ? ev.data : "Stream error");
           streamError = String(msg);
@@ -600,6 +616,10 @@ export default function Home() {
                 messages={messages}
                 userInitial={user?.name?.[0]?.toUpperCase() ?? "?"}
                 onAnswer={(text) => { void onSend(text, [], []); }}
+                onPermission={(requestId, decision) => {
+                  const cid = currentIdRef.current;
+                  if (cid) void api.submitPermission(cid, requestId, decision).catch(() => {});
+                }}
               />
             )}
           </div>

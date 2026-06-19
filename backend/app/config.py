@@ -8,6 +8,8 @@ import httpx
 # the host. The secrets that are mandatory for the shared server (NVIDIA / Google /
 # session) are optional here — see _required().
 ATELIER_LOCAL = os.environ.get("ATELIER_LOCAL", "0") not in {"0", "false", "False", ""}
+# Confirm-before-running gate for destructive/device commands (local build only).
+PERMISSIONS_ENABLED = os.environ.get("PERMISSIONS_ENABLED", "1") not in {"0", "false", "False", ""}
 # Filesystem root the local agent may operate under (default: the user's home dir).
 # Mirrors tools/app/workspace.py's ATELIER_LOCAL_ROOT; used here to seed a default
 # workspace and to confine user-picked project folders.

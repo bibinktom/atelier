@@ -11,7 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import config, crypto, db, firewall, memory, nim, preview, telemetry, tools_client
+from . import config, crypto, db, firewall, memory, nim, permissions, preview, telemetry, tools_client
 from .auth import require_approved_user as require_user
 
 router = APIRouter()
@@ -921,6 +921,34 @@ async def _node_act(state: TurnState):
         prepared.append({"id": tc["id"], "name": name, "args": args})
         yield _sse("tool_call", {"id": tc["id"], "name": name, "arguments": args})
 
+    # Permission gate (local desktop build): before any destructive/device command,
+    # pause and ask the user to Allow / Deny / Always-allow. Denied calls are not
+    # executed; the model is told so and adapts. Checked sequentially (it's an
+    # interactive prompt) before the parallel execution below.
+    denied_ids: set[str] = set()
+    if permissions.enabled():
+        for p in prepared:
+            verdict = permissions.classify(p["name"], p["args"])
+            if not verdict["needs"] or db.is_permission_allowed(state.user["id"], verdict["rule_key"]):
+                continue
+            req_id = db.new_id()
+            fut = permissions.new_request(req_id)
+            yield _sse("permission_request", {
+                "id": req_id, "tool_call_id": p["id"], "tool": p["name"],
+                "reason": verdict["reason"], "severity": verdict["severity"],
+                "command": verdict.get("command", ""), "rule_key": verdict["rule_key"],
+            })
+            try:
+                decision = await asyncio.wait_for(fut, timeout=300)
+            except asyncio.TimeoutError:
+                permissions.cancel(req_id)
+                decision = "deny"
+            yield _sse("permission_decision", {"id": req_id, "decision": decision})
+            if decision == "always":
+                db.add_permission_rule(state.user["id"], verdict["rule_key"])
+            elif decision == "deny":
+                denied_ids.add(p["id"])
+
     # Item 1: parallel execution within a hop. delegate / web_search / generators all run
     # at once when the model emits them together.
     async def _run(p):
@@ -944,8 +972,13 @@ async def _node_act(state: TurnState):
     # connection stays warm (Cloudflare's tunnel idle-timeout is ~100s) and the
     # UI can show "still working…" instead of looking frozen during long tools
     # like delegate. Unknown event types are ignored by EventSource clients.
-    running: dict = {asyncio.create_task(_run(p)): p for p in prepared}
-    results: list = []
+    # Denied-by-user calls skip execution with a result the model can react to.
+    results: list = [
+        (p, {"error": "Permission denied by the user; this action was not performed. "
+                      "Do not retry it; consider a safer alternative or ask what they'd prefer."})
+        for p in prepared if p["id"] in denied_ids
+    ]
+    running: dict = {asyncio.create_task(_run(p)): p for p in prepared if p["id"] not in denied_ids}
     while running:
         done, _pending = await asyncio.wait(running.keys(), timeout=5.0)
         if not done:
@@ -1674,6 +1707,35 @@ async def post_message(cid: str, body: PostMessageBody, request: Request, user=D
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class PermissionDecisionBody(BaseModel):
+    request_id: str
+    decision: str  # allow | deny | always
+
+
+@router.post("/conversations/{cid}/permission")
+async def submit_permission(cid: str, body: PermissionDecisionBody, _: Request,
+                            user=Depends(require_user)):
+    """Resolve a pending permission_request from a running turn (Allow/Deny/Always)."""
+    if body.decision not in {"allow", "deny", "always"}:
+        raise HTTPException(400, "decision must be allow|deny|always")
+    if not permissions.resolve(body.request_id, body.decision):
+        # No waiter — already decided, timed out, or unknown id.
+        raise HTTPException(404, "no pending permission request with that id")
+    return {"ok": True}
+
+
+@router.get("/permissions")
+async def list_permissions(_: Request, user=Depends(require_user)):
+    """The user's 'always allow' rules (for a settings list)."""
+    return {"rules": db.list_permission_rules(user["id"])}
+
+
+@router.delete("/permissions/{rule_key:path}")
+async def revoke_permission(rule_key: str, _: Request, user=Depends(require_user)):
+    db.delete_permission_rule(user["id"], rule_key)
+    return {"ok": True}
 
 
 # ---------- subagent (delegate) ----------
