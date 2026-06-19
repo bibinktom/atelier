@@ -810,10 +810,14 @@ async def _node_act(state: TurnState):
               tools_client.LIST_SKILLS_TOOL, tools_client.APPLY_SKILL_TOOL]
     if not state.lite:
         _extra = [tools_client.DELEGATE_TOOL] + _extra
+    # Device/connectivity tools (adb, arduino-cli, esptool, serial) are exposed only
+    # in the local desktop build — they touch USB hardware on the user's own machine.
+    _device = list(tools_client.DEVICE_TOOLS) if config.ATELIER_LOCAL else []
     tools = (list(tools_client.TOOL_DEFINITIONS)
              + _extra
              + list(tools_client.TASK_TOOLS)
              + list(tools_client.SCHEDULE_TOOLS)
+             + _device
              if state.use_tools else None)
 
     text_buf = ""
@@ -1461,6 +1465,16 @@ async def run_turn(*, cid: str, body: PostMessageBody, user: dict) -> AsyncItera
     workspace_path = workspace.get("host_path") or f"{user['id']}/{workspace['slug']}"
 
     system_prompt = SYSTEM_PROMPT + memory.memory_block(user["id"], conversation_id=cid)
+    if config.ATELIER_LOCAL:
+        system_prompt += (
+            "\n\n---\nLOCAL DESKTOP MODE: you are running on the user's own computer with their "
+            "real shell and files. The project folder is a real directory on their disk. You can "
+            "drive hardware and the wider system: to use an external tool that may not be installed "
+            "(adb for a USB phone, arduino-cli/esptool for ESP32/Arduino, ssh/scp/rsync for a server), "
+            "call `ensure_capability` to provision it, then run it with `workspace_bash`; use "
+            "`serial_list` to find connected boards. Prefer real actions (install, flash, copy, connect) "
+            "over describing them. Be careful with destructive commands on real files."
+        )
 
     attached_ids: list[str] = []
     if conv.get("skill_id"):

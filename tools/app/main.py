@@ -374,3 +374,65 @@ def codebase_search(body: WSCodebaseSearch):
         return ws.codebase_search(body.workspace_path, body.query, body.max_results)
     except (ValueError, PermissionError) as e:
         raise HTTPException(400, str(e))
+
+
+# ---- device / capability tools (local desktop build only) ----
+# These talk to USB hardware and provision external CLIs on the user's own machine,
+# so they're disabled in the shared-container server build.
+
+def _require_local():
+    if not ws.LOCAL:
+        raise HTTPException(400, "device tools are only available in the local desktop app")
+
+
+class EnsureCapBody(BaseModel):
+    name: str
+
+
+@app.post("/ensure_capability")
+def ensure_capability(body: EnsureCapBody):
+    """Make an external tool available (installing it on demand): adb, arduino-cli,
+    esptool, mpremote, ampy, or detect a system tool (ssh, git, …)."""
+    _require_local()
+    from . import capabilities
+    return capabilities.ensure(body.name)
+
+
+@app.post("/list_capabilities")
+def list_capabilities(_: dict | None = None):
+    """List known device/connectivity capabilities and whether each is installed."""
+    _require_local()
+    from . import capabilities
+    return capabilities.catalog()
+
+
+# USB-serial bridge chips common on ESP32 / Arduino boards → a friendlier hint.
+_BOARD_HINTS = {0x10c4: "Silicon Labs CP210x (ESP32 dev board)", 0x1a86: "WCH CH340 (ESP/Arduino clone)",
+                0x0403: "FTDI (Arduino/serial)", 0x2341: "Arduino", 0x239a: "Adafruit",
+                0x303a: "Espressif (native USB)"}
+
+
+class SerialListBody(BaseModel):
+    pass
+
+
+@app.post("/serial_list")
+def serial_list(_: SerialListBody | None = None):
+    """List serial ports (USB-connected ESP32 / Arduino / microcontrollers)."""
+    _require_local()
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return {"error": "pyserial not available", "ports": []}
+    ports = []
+    for p in list_ports.comports():
+        ports.append({
+            "device": p.device,
+            "description": p.description,
+            "hwid": p.hwid,
+            "vid": p.vid, "pid": p.pid,
+            "manufacturer": p.manufacturer,
+            "serial_number": p.serial_number,
+            "likely_board": _BOARD_HINTS.get(p.vid) if p.vid else None,
+        })
+    return {"ports": ports, "count": len(ports)}

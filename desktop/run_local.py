@@ -102,6 +102,10 @@ def main() -> int:
         **os.environ,
         "ATELIER_LOCAL": "1",
         "ATELIER_LOCAL_ROOT": str(root),
+        # Where ensure_capability provisions external CLIs (adb, arduino-cli, …).
+        "ATELIER_BIN_DIR": str(data_dir / "bin"),
+        "ATELIER_LIB_DIR": str(data_dir / "lib"),
+        "ATELIER_PYENV_DIR": str(data_dir / "pyenv"),
         "PYTHONUNBUFFERED": "1",
     }
     tools_env = {**common, "FILES_DIR": str(data_dir / "files")}

@@ -640,6 +640,46 @@ TOOL_DEFINITIONS = [
 ]
 
 
+# Device / connectivity tools — only exposed in the local desktop build (chat.py
+# gates them on config.ATELIER_LOCAL). They provision external CLIs on demand and
+# talk to USB hardware on the user's own machine.
+DEVICE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "ensure_capability",
+            "description": (
+                "Make an external tool available on this computer, installing it on demand if missing. "
+                "Use this BEFORE a shell command that needs it, then call it via workspace_bash. "
+                "Installable: 'adb' (control a USB-connected Android phone), 'arduino-cli' (compile/upload "
+                "to Arduino & ESP boards), 'esptool' (flash ESP32/ESP8266), 'mpremote'/'ampy' (MicroPython). "
+                "Detect-only system tools: 'ssh','scp','rsync','git','curl','ffmpeg'."),
+            "parameters": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "description": "Capability name, e.g. 'adb' or 'arduino-cli'."}},
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_capabilities",
+            "description": "List the device/connectivity tools you can provision and whether each is already installed.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "serial_list",
+            "description": "List serial ports — USB-connected ESP32 / Arduino / microcontrollers. Returns each port's device path and a board hint. Use before flashing or opening a serial monitor.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+
 async def execute_tool(name: str, args: dict, *, user_id: str, conversation_id: str,
                        workspace_path: str | None = None) -> dict:
     """Call the tools sidecar. Inject workspace_path for workspace tools. Register generated files."""

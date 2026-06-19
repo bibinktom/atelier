@@ -43,8 +43,15 @@ def _local_root() -> Path:
 
 def _exec_env() -> dict:
     """Env for subprocesses: the user's real environment locally, the scrubbed
-    SAFE_ENV in the shared container (where secrets must not leak)."""
-    return os.environ.copy() if LOCAL else SAFE_ENV
+    SAFE_ENV in the shared container (where secrets must not leak). Locally we
+    also prepend the managed bin dir (where ensure_capability installs adb /
+    arduino-cli / esptool) so shell commands find provisioned tools."""
+    if not LOCAL:
+        return SAFE_ENV
+    env = os.environ.copy()
+    bin_dir = os.environ.get("ATELIER_BIN_DIR") or str(Path.home() / ".atelier" / "bin")
+    env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+    return env
 
 
 def _exec_preexec():
