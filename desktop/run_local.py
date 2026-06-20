@@ -131,6 +131,10 @@ def main() -> int:
                     help="where SQLite + generated files live (default: ~/.atelier)")
     ap.add_argument("--backend-port", type=int, default=int(os.environ.get("ATELIER_BACKEND_PORT", "0") or 0))
     ap.add_argument("--firewall", action="store_true", help="enable the guard firewall (needs the guard sidecar)")
+    ap.add_argument("--permissions", action="store_true",
+                    help="ask before destructive commands (rm -rf, flashing, sudo, …). "
+                         "Default in the desktop build is to AUTO-APPROVE so the agent runs "
+                         "the work without interruption — it's your own machine.")
     args = ap.parse_args()
 
     data_dir = Path(args.data_dir).expanduser().resolve()
@@ -178,6 +182,9 @@ def main() -> int:
         # Offline-friendly defaults for a local boot.
         "SKILLS_CATALOG_ENABLED": os.environ.get("SKILLS_CATALOG_ENABLED", "0"),
         "FIREWALL_ENABLED": "1" if args.firewall else os.environ.get("FIREWALL_ENABLED", "0"),
+        # Auto-approve destructive tool calls by default (the user asked the agent
+        # to "just run the work"). Re-enable the confirm-gate with --permissions.
+        "PERMISSIONS_ENABLED": os.environ.get("PERMISSIONS_ENABLED", "1" if args.permissions else "0"),
         **({"FRONTEND_DIST": frontend_dist} if serve_frontend else {}),
     }
 

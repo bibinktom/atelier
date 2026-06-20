@@ -72,7 +72,7 @@ export function Sidebar({
   // Poll the queue every 30s while the admin is logged in. Cheap (one row per
   // pending user). Skips entirely for non-admin sessions.
   useEffect(() => {
-    if (!user?.is_admin) return;
+    if (!user?.is_admin || user?.local) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -89,7 +89,7 @@ export function Sidebar({
 
   // Load firewall events when the admin modal opens.
   useEffect(() => {
-    if (!adminOpen || !user?.is_admin) return;
+    if (!adminOpen || !user?.is_admin || user?.local) return;
     let cancelled = false;
     (async () => {
       try {
@@ -218,7 +218,7 @@ export function Sidebar({
         <Link href="/settings" className="mb-2 flex items-center gap-2 rounded px-2 py-1.5 text-sm transition hover:bg-[var(--color-paper-3)]">
           <span aria-hidden style={{ color: "var(--color-ink)" }}>⚙</span> Settings
         </Link>
-        {user?.is_admin && (
+        {!user?.local && user?.is_admin && (
           <button
             onClick={() => setAdminOpen(true)}
             className="mb-2 flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-sm transition hover:bg-[var(--color-paper-3)]"
@@ -255,7 +255,9 @@ export function Sidebar({
                   </span>}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px]">{user.name}</div>
-                <div className="truncate text-[11px]" style={{ color: "var(--color-muted)" }}>{user.email}</div>
+                {!user.local && (
+                  <div className="truncate text-[11px]" style={{ color: "var(--color-muted)" }}>{user.email}</div>
+                )}
               </div>
               <span aria-hidden className="text-[11px]" style={{ color: "var(--color-muted)" }}>
                 {userMenuOpen ? "▾" : "▸"}
@@ -284,7 +286,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {adminOpen && user?.is_admin && (
+      {adminOpen && !user?.local && user?.is_admin && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4"
           role="dialog" aria-modal="true"

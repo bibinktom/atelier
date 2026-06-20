@@ -589,20 +589,32 @@ export default function Home() {
               local={user?.local}
               localRoot={user?.local_root}
             />
-            {models.length > 0 && (
+            {models.length > 0 ? (
               <ModelPicker models={models} value={currentModelId} onChange={onModelChange} />
+            ) : (
+              <a
+                href="/settings"
+                className="flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition hover:bg-[var(--color-paper-3)]"
+                style={{ borderColor: "var(--color-brick)", color: "var(--color-brick)" }}
+                title="Connect an AI provider to choose a model"
+              >
+                <span aria-hidden>⚡</span>
+                <span>Connect a model →</span>
+              </a>
             )}
-            <a
-              href="https://buymeacoffee.com/bibintom"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition hover:bg-[var(--color-paper-3)]"
-              style={{ borderColor: "var(--color-brick)", color: "var(--color-brick)" }}
-              title="Support Atelier — buy me a coffee"
-            >
-              <span aria-hidden>☕</span>
-              <span className="hidden sm:inline">Buy me a coffee</span>
-            </a>
+            {!user?.local && (
+              <a
+                href="https://buymeacoffee.com/bibintom"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] transition hover:bg-[var(--color-paper-3)]"
+                style={{ borderColor: "var(--color-brick)", color: "var(--color-brick)" }}
+                title="Support Atelier — buy me a coffee"
+              >
+                <span aria-hidden>☕</span>
+                <span className="hidden sm:inline">Buy me a coffee</span>
+              </a>
+            )}
           </div>
           </div>
         </header>

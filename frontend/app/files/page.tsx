@@ -53,7 +53,7 @@ export default function FilesPage() {
             Everything the studio has produced for you, by date.
           </p>
         </div>
-        {user && <span className="text-[12px]" style={{ color: "var(--color-muted)" }}>{user.email}</span>}
+        {user && !user.local && <span className="text-[12px]" style={{ color: "var(--color-muted)" }}>{user.email}</span>}
       </div>
 
       {grouped.length === 0 && (

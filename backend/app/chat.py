@@ -1229,6 +1229,15 @@ class PostMessageBody(BaseModel):
 
 @router.get("/models")
 async def list_models(_: Request, user=Depends(require_user)):
+    # The model list reflects the user's actual provider connection — no false
+    # choice. Until they connect OpenRouter (and absent a NIM fallback), the
+    # picker is empty and the UI nudges them to Settings instead of offering
+    # models that would fail on the first message.
+    enc = db.get_openrouter_key_enc(user["id"])
+    connected = bool(enc and crypto.decrypt(enc))
+    if not connected and not config.ENABLE_NIM_FALLBACK:
+        return {"models": [], "default": None,
+                "message": "Connect OpenRouter in Settings to choose a model."}
     return {"models": config.AVAILABLE_MODELS, "default": config.DEFAULT_MODEL}
 
 

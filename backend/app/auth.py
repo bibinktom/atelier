@@ -134,8 +134,13 @@ def _local_user() -> dict:
         if u:
             return u
     import os
+    # Name from the OS user (USER on mac/linux, USERNAME on windows) so the app
+    # greets a real person, not a generic "You". Email is a non-meaningful local
+    # placeholder — the frontend hides it when user.local is true.
+    name = (os.environ.get("ATELIER_LOCAL_NAME")
+            or os.environ.get("USER") or os.environ.get("USERNAME") or "You")
     email = (os.environ.get("ATELIER_LOCAL_EMAIL") or "you@localhost").strip().lower()
-    u = db.upsert_user(email=email, name=os.environ.get("ATELIER_LOCAL_NAME") or "You",
+    u = db.upsert_user(email=email, name=name,
                        picture="", is_admin=True, is_pending=False)
     _local_user_id = u["id"]
     return u
@@ -194,13 +199,25 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
+# Local desktop mode never sets a session cookie (the user is auto-logged-in), so
+# the PKCE verifier can't round-trip through the external OpenRouter redirect in
+# the session the way the shared server does. Stash (state -> verifier) in-process
+# instead — single user, single machine, so a module dict is sufficient and the
+# `state` nonce still defeats callback CSRF.
+_or_pkce_local: dict[str, str] = {}
+
+
 @router.get("/openrouter/connect")
 async def openrouter_connect(request: Request, user=Depends(require_user)):
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
-    # Stash in the signed, httponly session cookie. Single-use (popped on callback).
-    request.session["or_verifier"] = verifier
-    request.session["or_state"] = state
+    if config.ATELIER_LOCAL:
+        _or_pkce_local.clear()  # only one connect attempt can be in flight
+        _or_pkce_local[state] = verifier
+    else:
+        # Stash in the signed, httponly session cookie. Single-use (popped on callback).
+        request.session["or_verifier"] = verifier
+        request.session["or_state"] = state
     callback = f"{config.PUBLIC_BACKEND_URL}/auth/openrouter/callback"
     url = (
         f"{config.OPENROUTER_OAUTH_URL}?callback_url={callback}"
@@ -213,10 +230,15 @@ async def openrouter_connect(request: Request, user=Depends(require_user)):
 async def openrouter_callback(request: Request, code: str = "", state: str = "",
                               user=Depends(require_user)):
     fe = config.PUBLIC_FRONTEND_URL
-    expected_state = request.session.pop("or_state", None)
-    verifier = request.session.pop("or_verifier", None)
-    # State nonce defeats callback CSRF (an attacker injecting their own code).
-    if not code or not state or state != expected_state or not verifier:
+    if config.ATELIER_LOCAL:
+        verifier = _or_pkce_local.pop(state, None) if state else None
+    else:
+        expected_state = request.session.pop("or_state", None)
+        verifier = request.session.pop("or_verifier", None)
+        # State nonce defeats callback CSRF (an attacker injecting their own code).
+        if state != expected_state:
+            verifier = None
+    if not code or not state or not verifier:
         return RedirectResponse(f"{fe}/settings?openrouter=error")
     try:
         async with httpx.AsyncClient(timeout=20) as client:

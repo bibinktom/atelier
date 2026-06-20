@@ -51,7 +51,7 @@ export default function SettingsPage() {
           <Link href="/" className="text-[12px] uppercase tracking-[0.2em] opacity-70 hover:opacity-100">
             ← back
           </Link>
-          {user?.email && (
+          {!user?.local && user?.email && (
             <div className="text-[12px]" style={{ color: "var(--color-muted)" }}>
               {user.email}
             </div>
