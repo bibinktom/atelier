@@ -53,6 +53,12 @@ export const api = {
 
   // OpenRouter OAuth: full-page nav (like loginUrl) → backend bounces to openrouter.ai.
   connectOpenRouterUrl: () => `${BACKEND}/auth/openrouter/connect`,
+  // Local desktop only: backend opens the OAuth flow in the *system browser* (the
+  // embedded webview can't do Google passkeys/WebAuthn). Returns the auth URL so the
+  // UI can offer a manual-open fallback; Settings then polls me() to detect success.
+  connectOpenRouterBrowser: () =>
+    jfetch<{ started: boolean; opened: boolean; url: string }>(
+      "/auth/openrouter/connect/browser", { method: "POST", body: JSON.stringify({}) }),
   disconnectOpenRouter: () =>
     jfetch("/auth/openrouter/disconnect", { method: "POST", body: JSON.stringify({}) }),
 

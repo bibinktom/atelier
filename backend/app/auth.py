@@ -5,7 +5,7 @@ import secrets
 import httpx
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 
 from . import config, crypto, db, firewall, notify
 
@@ -207,10 +207,22 @@ def _pkce_pair() -> tuple[str, str]:
 _or_pkce_local: dict[str, str] = {}
 
 
-@router.get("/openrouter/connect")
-async def openrouter_connect(request: Request, user=Depends(require_user)):
+def _openrouter_auth_url() -> tuple[str, str, str]:
+    """Build the OpenRouter PKCE authorize URL. Returns (url, state, verifier);
+    the caller stashes (state→verifier) wherever the matching callback will read it."""
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
+    callback = f"{config.PUBLIC_BACKEND_URL}/auth/openrouter/callback"
+    url = (
+        f"{config.OPENROUTER_OAUTH_URL}?callback_url={callback}"
+        f"&code_challenge={challenge}&code_challenge_method=S256&state={state}"
+    )
+    return url, state, verifier
+
+
+@router.get("/openrouter/connect")
+async def openrouter_connect(request: Request, user=Depends(require_user)):
+    url, state, verifier = _openrouter_auth_url()
     if config.ATELIER_LOCAL:
         _or_pkce_local.clear()  # only one connect attempt can be in flight
         _or_pkce_local[state] = verifier
@@ -218,12 +230,59 @@ async def openrouter_connect(request: Request, user=Depends(require_user)):
         # Stash in the signed, httponly session cookie. Single-use (popped on callback).
         request.session["or_verifier"] = verifier
         request.session["or_state"] = state
-    callback = f"{config.PUBLIC_BACKEND_URL}/auth/openrouter/callback"
-    url = (
-        f"{config.OPENROUTER_OAUTH_URL}?callback_url={callback}"
-        f"&code_challenge={challenge}&code_challenge_method=S256&state={state}"
-    )
     return RedirectResponse(url)
+
+
+@router.post("/openrouter/connect/browser")
+async def openrouter_connect_browser(request: Request, user=Depends(require_user)):
+    """Local desktop: open the OAuth flow in the user's *system browser* rather than
+    the embedded webview. The webview (macOS WKWebView / WebView2) can't run Google
+    passkeys / WebAuthn / the cross-device Bluetooth transport, so an in-app login
+    dead-ends at "Make sure Bluetooth is on…". The system browser has the user's
+    Google session + platform authenticator; it hits our local 127.0.0.1 callback
+    directly (no app cookie needed — local mode auto-authenticates), and the app
+    polls /auth/me until the key lands. Web (multi-user) builds keep using
+    GET /openrouter/connect (full-page redirect inside the real browser tab)."""
+    if not config.ATELIER_LOCAL:
+        raise HTTPException(404, "browser connect is local-mode only")
+    url, state, verifier = _openrouter_auth_url()
+    _or_pkce_local.clear()
+    _or_pkce_local[state] = verifier
+    import webbrowser
+    try:
+        opened = webbrowser.open(url, new=2)  # new tab in the default browser
+    except Exception:
+        opened = False
+    # Always hand back the URL so the UI can offer a manual "open this link" fallback
+    # if the OS had no default browser to launch.
+    return JSONResponse({"started": True, "opened": bool(opened), "url": url})
+
+
+def _callback_page(ok: bool) -> str:
+    """Standalone confirmation page shown in the *system browser* tab after a local
+    OAuth round-trip (the app itself updates via polling). Self-contained — no app
+    assets, no network — because it renders in whatever browser the user has."""
+    if ok:
+        title, accent, heading, body = (
+            "Atelier — Connected", "#9a3b25", "Connected ✓",
+            "Your OpenRouter account is linked. Return to Atelier — it has already "
+            "updated. You can close this tab.")
+    else:
+        title, accent, heading, body = (
+            "Atelier — Connection failed", "#9a3b25", "Couldn’t connect",
+            "Something went wrong linking OpenRouter. Return to Atelier and click "
+            "“Connect OpenRouter” to try again. You can close this tab.")
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title></head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#f6f3ec;color:#1c1a17;font-family:ui-serif,Georgia,'Times New Roman',serif;">
+<main style="max-width:30rem;padding:3rem 2rem;text-align:center;">
+<div style="font-size:2rem;font-weight:600;color:{accent};margin-bottom:.75rem;">{heading}</div>
+<p style="font-size:1.05rem;line-height:1.6;color:#46413a;font-family:ui-sans-serif,system-ui,sans-serif;">{body}</p>
+</main>
+<script>setTimeout(function(){{try{{window.close();}}catch(e){{}}}}, 2500);</script>
+</body></html>"""
 
 
 @router.get("/openrouter/callback")
@@ -238,8 +297,15 @@ async def openrouter_callback(request: Request, code: str = "", state: str = "",
         # State nonce defeats callback CSRF (an attacker injecting their own code).
         if state != expected_state:
             verifier = None
-    if not code or not state or not verifier:
+    def _fail():
+        # Local: the callback opened in the *system browser*, so we can't bounce to
+        # the in-app SPA — render a standalone page telling them to retry from Atelier.
+        if config.ATELIER_LOCAL:
+            return HTMLResponse(_callback_page(False), status_code=400)
         return RedirectResponse(f"{fe}/settings?openrouter=error")
+
+    if not code or not state or not verifier:
+        return _fail()
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.post(
@@ -248,13 +314,17 @@ async def openrouter_callback(request: Request, code: str = "", state: str = "",
                       "code_challenge_method": "S256"},
             )
     except httpx.RequestError:
-        return RedirectResponse(f"{fe}/settings?openrouter=error")
+        return _fail()
     if resp.status_code >= 400:
-        return RedirectResponse(f"{fe}/settings?openrouter=error")
+        return _fail()
     key = (resp.json() or {}).get("key")
     if not key:
-        return RedirectResponse(f"{fe}/settings?openrouter=error")
+        return _fail()
     db.set_openrouter_key(user["id"], crypto.encrypt(key))
+    if config.ATELIER_LOCAL:
+        # The app's Settings page is polling /auth/me and will flip to "Connected"
+        # on its own; this page just confirms it in the browser tab.
+        return HTMLResponse(_callback_page(True))
     return RedirectResponse(f"{fe}/settings?openrouter=connected")
 
 

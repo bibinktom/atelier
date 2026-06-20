@@ -1,15 +1,66 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, ATELIER_LOCAL } from "@/lib/api";
 
 export default function SettingsPage() {
   const [user, setUser] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Local desktop: we open OAuth in the system browser and poll until it lands.
+  const [connecting, setConnecting] = useState(false);
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
+  const pollActive = useRef(false);
 
   const load = async () => {
     try { setUser(await api.me()); } catch {}
+  };
+
+  // Stop polling if the user navigates away mid-connect.
+  useEffect(() => () => { pollActive.current = false; }, []);
+
+  const pollUntilConnected = () => {
+    pollActive.current = true;
+    const deadline = Date.now() + 5 * 60 * 1000; // 5-minute browser-sign-in window
+    const tick = async () => {
+      if (!pollActive.current) return;
+      try {
+        const me = await api.me();
+        if (me?.openrouter_connected) {
+          pollActive.current = false;
+          setUser(me); setConnecting(false); setManualUrl(null);
+          setToast("OpenRouter connected ✓");
+          setTimeout(() => setToast(null), 3000);
+          return;
+        }
+      } catch {}
+      if (pollActive.current && Date.now() < deadline) {
+        setTimeout(tick, 2000);
+      } else if (pollActive.current) {
+        pollActive.current = false;
+        setConnecting(false);
+        setToast("Sign-in timed out. Click Connect to try again.");
+        setTimeout(() => setToast(null), 4000);
+      }
+    };
+    setTimeout(tick, 2000);
+  };
+
+  const startBrowserConnect = async () => {
+    if (connecting) return;
+    setConnecting(true);
+    setManualUrl(null);
+    setToast("Opening your browser to sign in…");
+    setTimeout(() => setToast(null), 3000);
+    try {
+      const r = await api.connectOpenRouterBrowser();
+      if (!r.opened) setManualUrl(r.url); // no default browser — offer a manual link
+      pollUntilConnected();
+    } catch (e: any) {
+      setConnecting(false);
+      setToast(`Couldn't start sign-in: ${e?.message ?? e}`);
+      setTimeout(() => setToast(null), 4000);
+    }
   };
 
   useEffect(() => { (async () => {
@@ -90,22 +141,44 @@ export default function SettingsPage() {
 
           <div className="mt-5 flex items-center gap-3">
             {!connected ? (
-              <a
-                href={api.connectOpenRouterUrl()}
-                className="rounded-full px-4 py-2 text-[13px]"
-                style={{ background: "var(--color-brick)", color: "var(--color-paper)" }}
-              >
-                Connect OpenRouter →
-              </a>
-            ) : (
-              <>
+              ATELIER_LOCAL ? (
+                <button
+                  onClick={startBrowserConnect}
+                  disabled={connecting}
+                  className="rounded-full px-4 py-2 text-[13px] disabled:opacity-60"
+                  style={{ background: "var(--color-brick)", color: "var(--color-paper)" }}
+                >
+                  {connecting ? "Waiting for browser sign-in…" : "Connect OpenRouter →"}
+                </button>
+              ) : (
                 <a
                   href={api.connectOpenRouterUrl()}
-                  className="border px-4 py-2 text-[13px]"
-                  style={{ borderColor: "var(--color-rule)", color: "var(--color-ink)" }}
+                  className="rounded-full px-4 py-2 text-[13px]"
+                  style={{ background: "var(--color-brick)", color: "var(--color-paper)" }}
                 >
-                  Reconnect
+                  Connect OpenRouter →
                 </a>
+              )
+            ) : (
+              <>
+                {ATELIER_LOCAL ? (
+                  <button
+                    onClick={startBrowserConnect}
+                    disabled={connecting}
+                    className="border px-4 py-2 text-[13px] disabled:opacity-60"
+                    style={{ borderColor: "var(--color-rule)", color: "var(--color-ink)" }}
+                  >
+                    {connecting ? "Waiting for browser…" : "Reconnect"}
+                  </button>
+                ) : (
+                  <a
+                    href={api.connectOpenRouterUrl()}
+                    className="border px-4 py-2 text-[13px]"
+                    style={{ borderColor: "var(--color-rule)", color: "var(--color-ink)" }}
+                  >
+                    Reconnect
+                  </a>
+                )}
                 <button
                   onClick={disconnect}
                   disabled={busy}
@@ -118,10 +191,26 @@ export default function SettingsPage() {
             )}
           </div>
 
+          {connecting && (
+            <p className="mt-4 text-[12px]" style={{ color: "var(--color-muted)" }}>
+              Finish signing in on the browser tab that just opened, then come back —
+              this page connects automatically.
+              {manualUrl && (
+                <>
+                  {" "}Browser didn't open?{" "}
+                  <a href={manualUrl} target="_blank" rel="noreferrer"
+                     className="underline" style={{ color: "var(--color-brick)" }}>
+                    Open the sign-in link
+                  </a>.
+                </>
+              )}
+            </p>
+          )}
+
           <p className="mt-4 text-[12px]" style={{ color: "var(--color-muted)" }}>
-            You'll sign in to OpenRouter (Google works) and authorize Atelier. No
-            credit card needed for free models. Don't have an account? One is created
-            during sign-in.
+            {ATELIER_LOCAL
+              ? "Sign-in opens in your web browser (so Google passkeys and your existing session work), then connects back here. No credit card needed for free models."
+              : "You'll sign in to OpenRouter (Google works) and authorize Atelier. No credit card needed for free models. Don't have an account? One is created during sign-in."}
           </p>
         </div>
       </div>
